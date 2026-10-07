@@ -1,0 +1,39 @@
+[workspace]
+# Sub-crates live in crates/; switch to `members = ["crates/*"]` once the first exists.
+members = []
+resolver = "3"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+authors = ["Thomas Miles", "George Juliff", "Cormac Relf", "Declan McDonald", "Jeremy Webb"]
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/designonce/golf"
+keywords = ["cad", "geometry", "kernel", "brep", "modeling"]
+categories = ["graphics", "mathematics", "science"]
+
+[workspace.dependencies]
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+
+[package]
+name = "golf"
+description = "An open source CAD kernel"
+documentation = "https://docs.rs/golf"
+readme = "README.md"
+include = ["src/**/*", "Cargo.toml", "README.md", "LICENSE-MIT", "LICENSE-APACHE"]
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
