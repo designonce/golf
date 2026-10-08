@@ -1,0 +1,7 @@
+# Imports are grouped and split one per line only by nightly rustfmt; stable
+# ignores those two options (with a warning) and applies the rest.
+group_imports = "StdExternalCrate"
+style_edition = "2024"
+# one import per line. helps avoid merge conflicts.
+imports_granularity = "Item"
+use_field_init_shorthand = true

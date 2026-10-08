@@ -1,7 +1,8 @@
 [workspace]
 # Sub-crates live in crates/; switch to `members = ["crates/*"]` once the first exists.
-members = []
+members = ["crates/*"]
 resolver = "3"
+
 
 [workspace.package]
 version = "0.1.0"
@@ -14,6 +15,9 @@ keywords = ["cad", "geometry", "kernel", "brep", "modeling"]
 categories = ["graphics", "mathematics", "science"]
 
 [workspace.dependencies]
+golf_nurbs = { path = "crates/golf_nurbs" }
+nalgebra = { version = "0.33.3" }
+thiserror = { version = "2.0.20" }
 
 [workspace.lints.rust]
 unsafe_code = "forbid"
