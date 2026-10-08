@@ -52,6 +52,24 @@ macro_rules! impl_marker {
 impl_marker!(Uv);
 impl_marker!(T);
 
+/// Geometry with a 2D parameter space, [`Uv<Self>`](Uv).
+///
+/// Implementing it makes `Uv<Self>` an untagged [`Space<2>`]; it exists so
+/// geometry defined in other crates can have parameter spaces without
+/// implementing `Space` for `Uv`, which the orphan rule forbids.
+pub trait HasUv: 'static {}
+
+impl<M: HasUv> Space<2> for Uv<M> {
+    type Tag = ();
+}
+
+/// Geometry with a 1D parameter space, [`T<Self>`](T). See [`HasUv`].
+pub trait HasT: 'static {}
+
+impl<M: HasT> Space<1> for T<M> {
+    type Tag = ();
+}
+
 /// A position in space `S`.
 pub struct Point<S: Space<N>, const N: usize> {
     pub coords: SVector<f64, N>,

@@ -1,11 +1,10 @@
+use golf_manifold::Point;
+use golf_manifold::Space;
+use golf_manifold::Vector;
 use nalgebra::Matrix3;
 use nalgebra::Rotation3;
 use nalgebra::UnitQuaternion;
 use nalgebra::Vector3;
-
-use crate::space::Point;
-use crate::space::Space;
-use crate::space::Vector;
 
 /// An orthonormal frame in space `S`: where a shape's canonical local coordinates sit.
 ///
@@ -93,8 +92,9 @@ impl<S: Space<3>> Placement<S> {
 
 #[cfg(test)]
 mod tests {
+    use golf_manifold::World;
+
     use super::*;
-    use crate::space::World;
 
     #[test]
     fn from_axes_orthonormalises() {

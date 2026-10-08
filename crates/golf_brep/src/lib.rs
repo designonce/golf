@@ -1,64 +1,38 @@
-//! Boundary Representation (B-REP)
+//! Boundary representation: vertices, edges and faces glued into shells.
 //!
-//! Geometry is built from typed coordinate [`Space`]s and the [`Mapping`]s between
-//! them. Every [`Point`] and [`Vector`] carries the space it lives in, so mixing
-//! e.g. a sphere's uv coordinates with world coordinates is a type error.
+//! A [`Body`] owns its entities in arenas and refers to them by index ([`VertexId`],
+//! [`EdgeId`], [`FaceId`], [`ShellId`]). Geometry is type-erased ([`AnyCurve`](golf_geom::AnyCurve),
+//! [`AnySurface`](golf_geom::AnySurface)) so one body can mix kinds freely.
 //!
-//! Geometry is generic over the space it lives in: a `Sphere<World>` is placed
-//! directly in world space, while a `Sphere<Frame>` lives in a [`frame::FrameTree`]
-//! node and can be composed with that frame's placement.
+//! # Orientation
 //!
-//! A curve on a surface (a pcurve) is a `Mapping<1, 2>` into the surface's uv space;
-//! composing it with the surface gives the edge in the surface's space:
-//!
-//! ```
-//! use golf_brep::{Compose, Mapping, Point, Uv, Vector, World};
-//! use golf_brep::geom::{Line2, Sphere};
-//! use nalgebra::{Vector1, Vector2, Vector3};
-//!
-//! let sphere = Sphere::<World>::new(Point::new(Vector3::zeros()), 1.0);
-//! let pcurve = Line2::<Uv<Sphere<World>>>::new(Point::new(Vector2::zeros()), Vector::new(Vector2::x()));
-//! let edge = Compose::<_, _, 2>(pcurve, sphere);
-//! let _world = edge.apply(Point::new(Vector1::new(0.5)));
-//! ```
-//!
-//! A pcurve in some other surface's uv space does not compose with the sphere:
-//!
-//! ```compile_fail
-//! use golf_brep::{Compose, Mapping, Point, Uv, Vector, World};
-//! use golf_brep::geom::{Line2, Plane, Sphere};
-//! use nalgebra::{Vector1, Vector2, Vector3};
-//!
-//! let sphere = Sphere::<World>::new(Point::new(Vector3::zeros()), 1.0);
-//! let pcurve = Line2::<Uv<Plane<World>>>::new(Point::new(Vector2::zeros()), Vector::new(Vector2::x()));
-//! let edge = Compose::<_, _, 2>(pcurve, sphere);
-//! let _world = edge.apply(Point::new(Vector1::new(0.5)));
-//! ```
+//! - An [`Edge`] runs along its curve over `range`, from `start` to `end`.
+//! - A [`Face`]'s normal is its surface's normal, flipped unless `same_sense`.
+//!   For a solid, face normals point out of the material.
+//! - Each [`Loop`] of a face is a cycle of [`Coedge`]s, one face's use of an
+//!   edge. Walking a loop with the face normal pointing up, the face is on the
+//!   left: outer boundaries run anticlockwise, holes clockwise.
+//! - In a closed manifold body every edge is used exactly twice, once in each
+//!   direction (possibly by the same face, as along a cylinder's seam).
 
-mod domain;
-mod erased;
-pub mod frame;
-pub mod geom;
-mod manifold;
-mod mapping;
-mod space;
+mod body;
+mod entity;
+mod error;
+mod id;
+mod primitives;
 
-pub use domain::Axis;
-pub use domain::Domain;
-pub use erased::AnyCurve;
-pub use erased::AnyCurve2;
-pub use erased::AnySurface;
-pub use erased::DynEmbedding;
-pub use manifold::Curve;
-pub use manifold::Embedding;
-pub use manifold::ProjectError;
-pub use manifold::Surface;
-pub use manifold::newton_project;
-pub use mapping::Compose;
-pub use mapping::Mapping;
-pub use space::Point;
-pub use space::Space;
-pub use space::T;
-pub use space::Uv;
-pub use space::Vector;
-pub use space::World;
+pub use body::Body;
+pub use entity::Coedge;
+pub use entity::Edge;
+pub use entity::Face;
+pub use entity::FaceUv;
+pub use entity::Loop;
+pub use entity::Shell;
+pub use entity::Vertex;
+pub use error::TopologyError;
+pub use id::EdgeId;
+pub use id::FaceId;
+pub use id::ShellId;
+pub use id::VertexId;
+pub use primitives::cuboid;
+pub use primitives::cylinder;

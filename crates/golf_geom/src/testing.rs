@@ -1,12 +1,11 @@
 //! Checks shared by the geometry tests.
 
+use golf_manifold::Embedding;
+use golf_manifold::Mapping;
+use golf_manifold::Point;
+use golf_manifold::Space;
+use golf_manifold::newton_project;
 use nalgebra::SVector;
-
-use crate::manifold::Embedding;
-use crate::manifold::newton_project;
-use crate::mapping::Mapping;
-use crate::space::Point;
-use crate::space::Space;
 
 fn param<S: Space<N, Tag = ()>, const N: usize>(at: [f64; N]) -> Point<S, N> {
     Point::new(SVector::from(at))

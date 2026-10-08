@@ -1,15 +1,16 @@
+use golf_manifold::Domain;
+use golf_manifold::Embedding;
+use golf_manifold::HasUv;
+use golf_manifold::Mapping;
+use golf_manifold::Point;
+use golf_manifold::ProjectError;
+use golf_manifold::Space;
+use golf_manifold::Uv;
 use nalgebra::Matrix3x2;
 use nalgebra::Vector2;
 use nalgebra::Vector3;
 
 use super::Placement;
-use crate::domain::Domain;
-use crate::manifold::Embedding;
-use crate::manifold::ProjectError;
-use crate::mapping::Mapping;
-use crate::space::Point;
-use crate::space::Space;
-use crate::space::Uv;
 
 /// A plane in space `S`: `u` along local x, `v` along local y, normal along local z.
 #[derive(Clone, Debug)]
@@ -23,9 +24,7 @@ impl<S: Space<3>> Plane<S> {
     }
 }
 
-impl<S: Space<3>> Space<2> for Uv<Plane<S>> {
-    type Tag = ();
-}
+impl<S: Space<3>> HasUv for Plane<S> {}
 
 impl<S: Space<3>> Mapping<2, 3> for Plane<S> {
     type From = Uv<Plane<S>>;
@@ -60,13 +59,14 @@ impl<S: Space<3>> Embedding<2, 3> for Plane<S> {
 
 #[cfg(test)]
 mod tests {
+    use golf_manifold::Surface;
+    use golf_manifold::Vector;
+    use golf_manifold::World;
+
     use super::*;
-    use crate::geom::testing::assert_jacobian;
-    use crate::geom::testing::assert_matches_newton;
-    use crate::geom::testing::assert_round_trip;
-    use crate::manifold::Surface;
-    use crate::space::Vector;
-    use crate::space::World;
+    use crate::testing::assert_jacobian;
+    use crate::testing::assert_matches_newton;
+    use crate::testing::assert_round_trip;
 
     fn plane() -> Plane<World> {
         Plane::new(Placement::from_axes(

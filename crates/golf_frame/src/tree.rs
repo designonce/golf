@@ -1,16 +1,15 @@
 //! A hierarchy of rigid coordinate frames.
 
+use golf_manifold::Domain;
+use golf_manifold::Embedding;
+use golf_manifold::Mapping;
+use golf_manifold::Point;
+use golf_manifold::ProjectError;
+use golf_manifold::Space;
+use golf_manifold::Vector;
 use nalgebra::Isometry3;
 use nalgebra::Matrix3;
 use nalgebra::Vector3;
-
-use crate::domain::Domain;
-use crate::manifold::Embedding;
-use crate::manifold::ProjectError;
-use crate::mapping::Mapping;
-use crate::space::Point;
-use crate::space::Space;
-use crate::space::Vector;
 
 /// A node in a [`FrameTree`].
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]

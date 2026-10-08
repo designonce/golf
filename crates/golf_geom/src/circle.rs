@@ -1,18 +1,19 @@
 use core::f64::consts::PI;
 
+use golf_manifold::Axis;
+use golf_manifold::Domain;
+use golf_manifold::Embedding;
+use golf_manifold::HasT;
+use golf_manifold::Mapping;
+use golf_manifold::Point;
+use golf_manifold::ProjectError;
+use golf_manifold::Space;
+use golf_manifold::T;
 use nalgebra::Matrix3x1;
 use nalgebra::Vector1;
 use nalgebra::Vector3;
 
 use super::Placement;
-use crate::domain::Axis;
-use crate::domain::Domain;
-use crate::manifold::Embedding;
-use crate::manifold::ProjectError;
-use crate::mapping::Mapping;
-use crate::space::Point;
-use crate::space::Space;
-use crate::space::T;
 
 /// A circle in the local xy plane of its placement, about the local origin.
 ///
@@ -29,9 +30,7 @@ impl<S: Space<3>> Circle<S> {
     }
 }
 
-impl<S: Space<3>> Space<1> for T<Circle<S>> {
-    type Tag = ();
-}
+impl<S: Space<3>> HasT for Circle<S> {}
 
 impl<S: Space<3>> Mapping<1, 3> for Circle<S> {
     type From = T<Circle<S>>;
@@ -71,13 +70,14 @@ impl<S: Space<3>> Embedding<1, 3> for Circle<S> {
 
 #[cfg(test)]
 mod tests {
+    use golf_manifold::Curve;
+    use golf_manifold::Vector;
+    use golf_manifold::World;
+
     use super::*;
-    use crate::geom::testing::assert_jacobian;
-    use crate::geom::testing::assert_matches_newton;
-    use crate::geom::testing::assert_round_trip;
-    use crate::manifold::Curve;
-    use crate::space::Vector;
-    use crate::space::World;
+    use crate::testing::assert_jacobian;
+    use crate::testing::assert_matches_newton;
+    use crate::testing::assert_round_trip;
 
     fn circle() -> Circle<World> {
         Circle::new(

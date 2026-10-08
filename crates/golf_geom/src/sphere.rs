@@ -1,19 +1,20 @@
 use core::f64::consts::FRAC_PI_2;
 use core::f64::consts::PI;
 
+use golf_manifold::Axis;
+use golf_manifold::Domain;
+use golf_manifold::Embedding;
+use golf_manifold::HasUv;
+use golf_manifold::Mapping;
+use golf_manifold::Point;
+use golf_manifold::ProjectError;
+use golf_manifold::Space;
+use golf_manifold::Uv;
 use nalgebra::Matrix3x2;
 use nalgebra::Vector2;
 use nalgebra::Vector3;
 
 use super::Placement;
-use crate::domain::Axis;
-use crate::domain::Domain;
-use crate::manifold::Embedding;
-use crate::manifold::ProjectError;
-use crate::mapping::Mapping;
-use crate::space::Point;
-use crate::space::Space;
-use crate::space::Uv;
 
 /// A sphere in space `S`, parametrised by longitude `u ∈ [-π, π)` about local z
 /// from local x, and latitude `v ∈ [-π/2, π/2]`.
@@ -40,9 +41,7 @@ impl<S: Space<3>> Sphere<S> {
     }
 }
 
-impl<S: Space<3>> Space<2> for Uv<Sphere<S>> {
-    type Tag = ();
-}
+impl<S: Space<3>> HasUv for Sphere<S> {}
 
 impl<S: Space<3>> Mapping<2, 3> for Sphere<S> {
     type From = Uv<Sphere<S>>;
@@ -97,19 +96,19 @@ impl<S: Space<3>> Embedding<2, 3> for Sphere<S> {
 
 #[cfg(test)]
 mod tests {
+    use golf_frame::FrameTree;
+    use golf_manifold::Compose;
+    use golf_manifold::Surface;
+    use golf_manifold::Vector;
+    use golf_manifold::World;
+    use golf_manifold::newton_project;
     use nalgebra::Isometry3;
     use nalgebra::Translation3;
     use nalgebra::UnitQuaternion;
 
     use super::*;
-    use crate::frame::FrameTree;
-    use crate::geom::testing::assert_jacobian;
-    use crate::geom::testing::assert_round_trip;
-    use crate::manifold::Surface;
-    use crate::manifold::newton_project;
-    use crate::mapping::Compose;
-    use crate::space::Vector;
-    use crate::space::World;
+    use crate::testing::assert_jacobian;
+    use crate::testing::assert_round_trip;
 
     fn uv<S: Space<3>>(u: f64, v: f64) -> Point<Uv<Sphere<S>>, 2> {
         Point::new(Vector2::new(u, v))

@@ -14,27 +14,29 @@
 
 use std::sync::Arc;
 
+use golf_manifold::Domain;
+use golf_manifold::Embedding;
+use golf_manifold::HasT;
+use golf_manifold::HasUv;
+use golf_manifold::Mapping;
+use golf_manifold::Point;
+use golf_manifold::ProjectError;
+use golf_manifold::Space;
+use golf_manifold::T;
+use golf_manifold::Uv;
 use nalgebra::SMatrix;
 use nalgebra::SVector;
 
-use crate::domain::Domain;
-use crate::geom::Circle;
-use crate::geom::Cone;
-use crate::geom::Cylinder;
-use crate::geom::Ellipse;
-use crate::geom::Line;
-use crate::geom::NurbsCurve;
-use crate::geom::NurbsSurface;
-use crate::geom::Plane;
-use crate::geom::Sphere;
-use crate::geom::Torus;
-use crate::manifold::Embedding;
-use crate::manifold::ProjectError;
-use crate::mapping::Mapping;
-use crate::space::Point;
-use crate::space::Space;
-use crate::space::T;
-use crate::space::Uv;
+use crate::Circle;
+use crate::Cone;
+use crate::Cylinder;
+use crate::Ellipse;
+use crate::Line;
+use crate::NurbsCurve;
+use crate::NurbsSurface;
+use crate::Plane;
+use crate::Sphere;
+use crate::Torus;
 
 /// An object-safe [`Embedding`] of an `N`-dimensional parameter space into `S`,
 /// with parameters as bare coordinates.
@@ -84,7 +86,7 @@ where
 macro_rules! erased {
     (
         $(#[$meta:meta])*
-        $name:ident<S: Space<$m:literal>>, $param:ident<_>, $n:literal,
+        $name:ident<S: Space<$m:literal>>, $param:ident<_> via $has:ident, $n:literal,
         { $($(#[$vmeta:meta])* $variant:ident($ty:ty)),* $(,)? }
     ) => {
         $(#[$meta])*
@@ -104,9 +106,7 @@ macro_rules! erased {
             }
         )*
 
-        impl<S: Space<$m>> Space<$n> for $param<$name<S>> {
-            type Tag = ();
-        }
+        impl<S: Space<$m>> $has for $name<S> {}
 
         impl<S: Space<$m>> Mapping<$n, $m> for $name<S> {
             type From = $param<$name<S>>;
@@ -156,7 +156,7 @@ macro_rules! erased {
 
 erased! {
     /// Any surface in a 3D space `S`.
-    AnySurface<S: Space<3>>, Uv<_>, 2, {
+    AnySurface<S: Space<3>>, Uv<_> via HasUv, 2, {
         Plane(Plane<S>),
         Sphere(Sphere<S>),
         Cylinder(Cylinder<S>),
@@ -168,7 +168,7 @@ erased! {
 
 erased! {
     /// Any curve in a 3D space `S`.
-    AnyCurve<S: Space<3>>, T<_>, 1, {
+    AnyCurve<S: Space<3>>, T<_> via HasT, 1, {
         Line(Line<S, 3>),
         Circle(Circle<S>),
         Ellipse(Ellipse<S>),
@@ -179,7 +179,7 @@ erased! {
 erased! {
     /// Any curve in a 2D space `S`; typically a pcurve, with `S` a surface's
     /// parameter space such as `Uv<AnySurface<World>>`.
-    AnyCurve2<S: Space<2>>, T<_>, 1, {
+    AnyCurve2<S: Space<2>>, T<_> via HasT, 1, {
         Line(Line<S, 2>),
         Nurbs(NurbsCurve<S, 2>),
     }
@@ -187,19 +187,19 @@ erased! {
 
 #[cfg(test)]
 mod tests {
+    use golf_frame::Frame;
+    use golf_frame::FrameTree;
+    use golf_manifold::Compose;
+    use golf_manifold::Curve;
+    use golf_manifold::Surface;
+    use golf_manifold::Vector;
+    use golf_manifold::World;
     use nalgebra::Isometry3;
     use nalgebra::Vector2;
     use nalgebra::Vector3;
 
     use super::*;
-    use crate::frame::Frame;
-    use crate::frame::FrameTree;
-    use crate::geom::Placement;
-    use crate::manifold::Curve;
-    use crate::manifold::Surface;
-    use crate::mapping::Compose;
-    use crate::space::Vector;
-    use crate::space::World;
+    use crate::Placement;
 
     fn placement() -> Placement<World> {
         Placement::from_axes(

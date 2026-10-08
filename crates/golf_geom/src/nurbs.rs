@@ -1,19 +1,20 @@
 //! NURBS curves and surfaces from `golf_nurbs`, placed in a space.
 
+use golf_manifold::Axis;
+use golf_manifold::Domain;
+use golf_manifold::Embedding;
+use golf_manifold::HasT;
+use golf_manifold::HasUv;
+use golf_manifold::Mapping;
+use golf_manifold::Point;
+use golf_manifold::ProjectError;
+use golf_manifold::Space;
+use golf_manifold::T;
+use golf_manifold::Uv;
+use golf_manifold::newton_project;
 use nalgebra::Matrix3x2;
 use nalgebra::SMatrix;
 use nalgebra::SVector;
-
-use crate::domain::Axis;
-use crate::domain::Domain;
-use crate::manifold::Embedding;
-use crate::manifold::ProjectError;
-use crate::manifold::newton_project;
-use crate::mapping::Mapping;
-use crate::space::Point;
-use crate::space::Space;
-use crate::space::T;
-use crate::space::Uv;
 
 /// A NURBS curve in an `N`-dimensional space `S`.
 ///
@@ -65,9 +66,7 @@ impl<S: Space<N>, const N: usize> NurbsCurve<S, N> {
     }
 }
 
-impl<S: Space<N>, const N: usize> Space<1> for T<NurbsCurve<S, N>> {
-    type Tag = ();
-}
+impl<S: Space<N>, const N: usize> HasT for NurbsCurve<S, N> {}
 
 impl<S: Space<N>, const N: usize> Mapping<1, N> for NurbsCurve<S, N> {
     type From = T<NurbsCurve<S, N>>;
@@ -169,9 +168,7 @@ impl<S: Space<3>> NurbsSurface<S> {
     }
 }
 
-impl<S: Space<3>> Space<2> for Uv<NurbsSurface<S>> {
-    type Tag = ();
-}
+impl<S: Space<3>> HasUv for NurbsSurface<S> {}
 
 impl<S: Space<3>> Mapping<2, 3> for NurbsSurface<S> {
     type From = Uv<NurbsSurface<S>>;
@@ -269,6 +266,11 @@ fn nearest<P: Copy>(candidates: impl Iterator<Item = P>, distance: impl Fn(P) ->
 mod tests {
     use core::f64::consts::PI;
 
+    use golf_frame::Frame;
+    use golf_frame::FrameTree;
+    use golf_manifold::Compose;
+    use golf_manifold::Surface;
+    use golf_manifold::World;
     use nalgebra::Isometry3;
     use nalgebra::Translation3;
     use nalgebra::UnitQuaternion;
@@ -276,17 +278,12 @@ mod tests {
     use nalgebra::Vector3;
 
     use super::*;
-    use crate::frame::Frame;
-    use crate::frame::FrameTree;
-    use crate::geom::Circle;
-    use crate::geom::Cylinder;
-    use crate::geom::Placement;
-    use crate::geom::Sphere;
-    use crate::geom::testing::assert_jacobian;
-    use crate::geom::testing::assert_round_trip;
-    use crate::manifold::Surface;
-    use crate::mapping::Compose;
-    use crate::space::World;
+    use crate::Circle;
+    use crate::Cylinder;
+    use crate::Placement;
+    use crate::Sphere;
+    use crate::testing::assert_jacobian;
+    use crate::testing::assert_round_trip;
 
     fn circle_geometry(radius: f64) -> golf_nurbs::NurbsCurve<3> {
         golf_nurbs::NurbsCurve::circular_arc(

@@ -1,14 +1,14 @@
+use golf_manifold::Domain;
+use golf_manifold::Embedding;
+use golf_manifold::HasT;
+use golf_manifold::Mapping;
+use golf_manifold::Point;
+use golf_manifold::ProjectError;
+use golf_manifold::Space;
+use golf_manifold::T;
+use golf_manifold::Vector;
 use nalgebra::SMatrix;
 use nalgebra::Vector1;
-
-use crate::domain::Domain;
-use crate::manifold::Embedding;
-use crate::manifold::ProjectError;
-use crate::mapping::Mapping;
-use crate::space::Point;
-use crate::space::Space;
-use crate::space::T;
-use crate::space::Vector;
 
 /// The straight line `origin + t·direction` in an `N`-dimensional space `S`.
 ///
@@ -28,9 +28,7 @@ impl<S: Space<N>, const N: usize> Line<S, N> {
     }
 }
 
-impl<S: Space<N>, const N: usize> Space<1> for T<Line<S, N>> {
-    type Tag = ();
-}
+impl<S: Space<N>, const N: usize> HasT for Line<S, N> {}
 
 impl<S: Space<N>, const N: usize> Mapping<1, N> for Line<S, N> {
     type From = T<Line<S, N>>;
@@ -67,17 +65,17 @@ impl<S: Space<N>, const N: usize> Embedding<1, N> for Line<S, N> {
 
 #[cfg(test)]
 mod tests {
+    use golf_manifold::Curve;
+    use golf_manifold::Uv;
+    use golf_manifold::World;
     use nalgebra::Vector2;
     use nalgebra::Vector3;
 
     use super::*;
-    use crate::geom::Plane;
-    use crate::geom::testing::assert_jacobian;
-    use crate::geom::testing::assert_matches_newton;
-    use crate::geom::testing::assert_round_trip;
-    use crate::manifold::Curve;
-    use crate::space::Uv;
-    use crate::space::World;
+    use crate::Plane;
+    use crate::testing::assert_jacobian;
+    use crate::testing::assert_matches_newton;
+    use crate::testing::assert_round_trip;
 
     fn line() -> Line<World, 3> {
         Line::new(

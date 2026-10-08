@@ -1,6 +1,6 @@
 [package]
-name = "golf_brep"
-description = "Boundary representation topology"
+name = "golf_geom"
+description = "Analytic and NURBS curves and surfaces"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -11,10 +11,9 @@ keywords.workspace = true
 categories.workspace = true
 
 [dependencies]
-golf_geom.workspace = true
 golf_manifold.workspace = true
+golf_nurbs.workspace = true
 nalgebra.workspace = true
-thiserror.workspace = true
 
 [dev-dependencies]
 golf_frame.workspace = true

@@ -1,19 +1,20 @@
 use core::f64::consts::FRAC_PI_2;
 use core::f64::consts::PI;
 
+use golf_manifold::Axis;
+use golf_manifold::Domain;
+use golf_manifold::Embedding;
+use golf_manifold::HasUv;
+use golf_manifold::Mapping;
+use golf_manifold::Point;
+use golf_manifold::ProjectError;
+use golf_manifold::Space;
+use golf_manifold::Uv;
 use nalgebra::Matrix3x2;
 use nalgebra::Vector2;
 use nalgebra::Vector3;
 
 use super::Placement;
-use crate::domain::Axis;
-use crate::domain::Domain;
-use crate::manifold::Embedding;
-use crate::manifold::ProjectError;
-use crate::mapping::Mapping;
-use crate::space::Point;
-use crate::space::Space;
-use crate::space::Uv;
 
 /// A cone about local z in space `S`.
 ///
@@ -54,9 +55,7 @@ impl<S: Space<3>> Cone<S> {
     }
 }
 
-impl<S: Space<3>> Space<2> for Uv<Cone<S>> {
-    type Tag = ();
-}
+impl<S: Space<3>> HasUv for Cone<S> {}
 
 impl<S: Space<3>> Mapping<2, 3> for Cone<S> {
     type From = Uv<Cone<S>>;
@@ -113,13 +112,14 @@ impl<S: Space<3>> Embedding<2, 3> for Cone<S> {
 
 #[cfg(test)]
 mod tests {
+    use golf_manifold::Surface;
+    use golf_manifold::Vector;
+    use golf_manifold::World;
+
     use super::*;
-    use crate::geom::testing::assert_jacobian;
-    use crate::geom::testing::assert_matches_newton;
-    use crate::geom::testing::assert_round_trip;
-    use crate::manifold::Surface;
-    use crate::space::Vector;
-    use crate::space::World;
+    use crate::testing::assert_jacobian;
+    use crate::testing::assert_matches_newton;
+    use crate::testing::assert_round_trip;
 
     fn uv(u: f64, v: f64) -> Point<Uv<Cone<World>>, 2> {
         Point::new(Vector2::new(u, v))

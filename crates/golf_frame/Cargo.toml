@@ -1,6 +1,6 @@
 [package]
-name = "golf_brep"
-description = "Boundary representation topology"
+name = "golf_frame"
+description = "Hierarchies of rigid coordinate frames"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -11,13 +11,8 @@ keywords.workspace = true
 categories.workspace = true
 
 [dependencies]
-golf_geom.workspace = true
 golf_manifold.workspace = true
 nalgebra.workspace = true
-thiserror.workspace = true
-
-[dev-dependencies]
-golf_frame.workspace = true
 
 [lints]
 workspace = true
