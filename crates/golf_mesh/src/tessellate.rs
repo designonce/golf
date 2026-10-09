@@ -2,12 +2,13 @@ use std::collections::HashMap;
 
 use golf_manifold::Mapping;
 use golf_manifold::Point;
+use golf_manifold::Surface;
 use nalgebra::Vector3;
 
 use crate::boundary::EdgeSample;
 use crate::boundary::face_loops;
 use crate::mesh::Mesh;
-use crate::sample::sample;
+use crate::sample::sample_with;
 use crate::source::MeshErrorOf;
 use crate::source::MeshOf;
 use crate::source::MeshSource;
@@ -34,15 +35,53 @@ pub fn mesh<M: MeshSource>(source: &M, tolerance: &Tolerance) -> Result<MeshOf<M
         chord: tolerance.chord / 2.0,
         ..*tolerance
     };
+    // The faces either side of each edge, through its pcurves: their triangles
+    // along the edge are flat, so the edge must be sampled finely enough for
+    // the surface normals to turn no more than the angle between samples.
+    let faces: Vec<_> = source.faces().collect();
+    let mut sides: HashMap<M::Edge, Vec<Side<'_, M>>> = HashMap::new();
+    for (_, face) in &faces {
+        let sense = if face.same_sense { 1.0 } else { -1.0 };
+        for coedge in face.loops.iter().flatten() {
+            if let Some(pcurve) = coedge.pcurve {
+                sides.entry(coedge.edge).or_default().push(Side {
+                    surface: face.surface,
+                    pcurve,
+                    sense,
+                });
+            }
+        }
+    }
     let mut edge_samples: HashMap<M::Edge, Vec<EdgeSample>> = HashMap::new();
     for (id, edge) in source.edges() {
+        let sides = sides.get(&id).map_or(&[][..], Vec::as_slice);
+        let normal = |side: &Side<'_, M>, t: f64| {
+            side.surface
+                .normal(side.pcurve.apply(Point::new([t].into())))
+                .coords
+                * side.sense
+        };
+        let flat_enough = |a: f64, b: f64| {
+            sides.iter().all(|side| {
+                let (na, nb) = (normal(side, a), normal(side, b));
+                // A pole's normal is undefined; the edge sampler can't help there.
+                !(na.iter().chain(&nb).all(|x| x.is_finite())) || na.angle(&nb) <= tolerance.angle
+            })
+        };
         let at = |t: f64| Point::new([t].into());
         let point = |t: f64| edge.curve.apply(at(t)).coords;
         let tangent = |t: f64| -> Vector3<f64> { edge.curve.jacobian(at(t)).column(0).into() };
         // A closed edge needs a few segments to begin with, or its two ends,
         // being one point, would look like a settled chord.
         let initial = if edge.start == edge.end { 3 } else { 1 };
-        let ts = sample(point, tangent, edge.range, initial, &edge_tolerance);
+        let ts = sample_with(
+            point,
+            tangent,
+            edge.range,
+            initial,
+            &edge_tolerance,
+            flat_enough,
+        );
         let last = ts.len() - 1;
         let samples = ts
             .iter()
@@ -62,7 +101,7 @@ pub fn mesh<M: MeshSource>(source: &M, tolerance: &Tolerance) -> Result<MeshOf<M
         edge_samples.insert(id, samples);
     }
 
-    for (face_id, face) in source.faces() {
+    for (face_id, face) in faces {
         let loops = face_loops::<M>(face_id, &face, &edge_samples, &mut mesh, tolerance)?;
         triangulate::<M>(
             face_id,
@@ -74,6 +113,14 @@ pub fn mesh<M: MeshSource>(source: &M, tolerance: &Tolerance) -> Result<MeshOf<M
         )?;
     }
     Ok(mesh)
+}
+
+/// A face using an edge, as the edge sampler sees it.
+struct Side<'a, M: MeshSource + ?Sized> {
+    surface: &'a M::Surface,
+    pcurve: &'a M::Pcurve,
+    /// The face normal's sign against the surface's.
+    sense: f64,
 }
 
 #[cfg(test)]

@@ -14,9 +14,22 @@ use crate::tolerance::Tolerance;
 pub(crate) fn sample(
     f: impl Fn(f64) -> Vector3<f64>,
     df: impl Fn(f64) -> Vector3<f64>,
+    range: (f64, f64),
+    initial: usize,
+    tolerance: &Tolerance,
+) -> Vec<f64> {
+    sample_with(f, df, range, initial, tolerance, |_, _| true)
+}
+
+/// [`sample`], also halving any segment from `a` to `b` for which `also(a, b)`
+/// is false.
+pub(crate) fn sample_with(
+    f: impl Fn(f64) -> Vector3<f64>,
+    df: impl Fn(f64) -> Vector3<f64>,
     (t0, t1): (f64, f64),
     initial: usize,
     tolerance: &Tolerance,
+    also: impl Fn(f64, f64) -> bool,
 ) -> Vec<f64> {
     const MAX_DEPTH: usize = 24;
     let settled = |a: f64, b: f64| {
@@ -34,6 +47,7 @@ pub(crate) fn sample(
         [0.25, 0.5, 0.75]
             .iter()
             .all(|&s| distance_to_segment(f(a + (b - a) * s), pa, pb) <= tolerance.chord)
+            && also(a, b)
     };
 
     fn split(
