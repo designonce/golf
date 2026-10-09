@@ -1,0 +1,25 @@
+[package]
+name = "golf_viewer"
+description = "A desktop viewer for STEP files, through golf's import, healing and meshing"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[dependencies]
+bevy.workspace = true
+golf_brep.workspace = true
+golf_color.workspace = true
+golf_import_step.workspace = true
+golf_manifold.workspace = true
+golf_mesh.workspace = true
+golf_view.workspace = true
+nalgebra.workspace = true
+rfd.workspace = true
+
+[lints]
+workspace = true

@@ -38,7 +38,10 @@ golf_nurbs = { path = "crates/golf_nurbs" }
 golf_sketch = { path = "crates/golf_sketch" }
 golf_step = { path = "crates/golf_step" }
 golf_view = { path = "crates/golf_view" }
+golf_viewer = { path = "crates/golf_viewer" }
 nalgebra = { version = "0.33.3" }
+# File dialogs, through GTK on Linux.
+rfd = { version = "0.14.1", default-features = false, features = ["gtk3"] }
 spade = { version = "2.13.1" }
 thiserror = { version = "2.0.20" }
 
