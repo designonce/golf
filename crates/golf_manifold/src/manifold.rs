@@ -126,15 +126,28 @@ where
         let mut alpha = 1.0;
         let next = loop {
             let next = offset(x, step * alpha);
-            if objective(next) <= current + 1e-4 * alpha * slope || alpha < 1e-10 {
-                break next;
+            if objective(next) <= current + 1e-4 * alpha * slope {
+                break Some(next);
+            }
+            if alpha < 1e-10 {
+                break None;
             }
             alpha /= 2.0;
         };
+        // No step reduces the distance: this is the nearest point, to the
+        // precision the distance can be computed with.
+        let Some(next) = next else {
+            return Ok(domain.wrap(x));
+        };
 
+        // Converged when the step moves the parameters, or their image, by a
+        // rounding error. (Near the solution, the finite-difference Hessian
+        // can keep steps a little above the parameters' own rounding.)
         let moved = (next.coords - x.coords).norm();
+        let image_moved = (j * (next.coords - x.coords)).norm();
+        let scale = 1.0 + p.coords.norm();
         x = next;
-        if moved <= 1e-14 * (1.0 + x.coords.norm()) {
+        if moved <= 1e-14 * (1.0 + x.coords.norm()) || image_moved <= 1e-13 * scale {
             return Ok(domain.wrap(x));
         }
     }
