@@ -7,11 +7,13 @@ mod corner;
 mod error;
 mod locus;
 mod offset;
+mod path;
 mod profile;
 mod region;
 mod segment;
 
 pub use error::SketchError;
+pub use path::Path;
 pub use profile::Profile;
 pub use profile::ProfileBuilder;
 pub use region::Region;

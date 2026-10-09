@@ -4,6 +4,7 @@ use core::f64::consts::TAU;
 use nalgebra::Vector2;
 
 use crate::error::SketchError;
+use crate::path::Path;
 use crate::segment::Segment;
 
 /// A closed chain of segments in a sketch: each starts where the last ended,
@@ -14,7 +15,7 @@ pub struct Profile {
 }
 
 /// How close consecutive segments' ends must be, relative to the profile's size.
-const JOIN_TOLERANCE: f64 = 1e-9;
+pub(crate) const JOIN_TOLERANCE: f64 = 1e-9;
 
 impl Profile {
     /// Checks `segments` form a closed, non-degenerate chain enclosing some area.
@@ -387,6 +388,14 @@ impl ProfileBuilder {
             self = self.line_to(start);
         }
         Profile::new(self.segments)
+    }
+
+    /// Finishes an open path where the pen is, without closing it.
+    pub fn path(self) -> Result<Path, SketchError> {
+        if let Some(error) = self.error {
+            return Err(error);
+        }
+        Path::new(self.segments)
     }
 }
 
