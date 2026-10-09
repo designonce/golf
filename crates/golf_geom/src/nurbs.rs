@@ -72,11 +72,15 @@ impl<S: Space<N>, const N: usize> Mapping<1, N> for NurbsCurve<S, N> {
     type From = T<NurbsCurve<S, N>>;
     type To = S;
 
+    /// A closed curve's parameter is periodic: outside its knots it wraps
+    /// round, as an analytic closed curve's does.
     fn apply(&self, t: Point<Self::From, 1>) -> Point<S, N> {
+        let t = self.domain.wrap(t);
         Point::with_tag(self.geometry.point(t.coords.x), self.tag)
     }
 
     fn jacobian(&self, t: Point<Self::From, 1>) -> SMatrix<f64, N, 1> {
+        let t = self.domain.wrap(t);
         self.geometry.point_and_tangent(t.coords.x).1
     }
 }
@@ -174,11 +178,15 @@ impl<S: Space<3>> Mapping<2, 3> for NurbsSurface<S> {
     type From = Uv<NurbsSurface<S>>;
     type To = S;
 
+    /// A parameter round an axis the surface closes across is periodic:
+    /// outside its knots it wraps round, as an analytic surface's does.
     fn apply(&self, uv: Point<Self::From, 2>) -> Point<S, 3> {
+        let uv = self.domain.wrap(uv);
         Point::with_tag(self.geometry.point(uv.coords.x, uv.coords.y), self.tag)
     }
 
     fn jacobian(&self, uv: Point<Self::From, 2>) -> Matrix3x2<f64> {
+        let uv = self.domain.wrap(uv);
         let (_, du, dv) = self.geometry.point_and_partials(uv.coords.x, uv.coords.y);
         Matrix3x2::from_columns(&[du, dv])
     }
