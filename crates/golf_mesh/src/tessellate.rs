@@ -20,8 +20,37 @@ use crate::triangulate::triangulate;
 /// Tessellates every face of `source` to `tolerance`.
 ///
 /// Edges are sampled once and shared by the faces either side, so a closed
-/// source gives a watertight mesh.
+/// source gives a watertight mesh. Where a face's boundary, so sampled,
+/// crosses itself (a hole close to the outline, whose chords cut across it),
+/// its edges are sampled more finely and the source meshed again.
 pub fn mesh<M: MeshSource>(source: &M, tolerance: &Tolerance) -> Result<MeshOf<M>, MeshErrorOf<M>> {
+    const RETRIES: usize = 4;
+    let mut finer: HashMap<M::Edge, f64> = HashMap::new();
+    let mut attempt = 0;
+    loop {
+        match mesh_with(source, tolerance, &finer) {
+            Err(MeshError::SelfIntersectingBoundary { face }) if attempt < RETRIES => {
+                attempt += 1;
+                let edges = source
+                    .faces()
+                    .find(|(id, _)| *id == face)
+                    .map(|(_, f)| f.loops.iter().flatten().map(|c| c.edge).collect::<Vec<_>>())
+                    .unwrap_or_default();
+                for edge in edges {
+                    *finer.entry(edge).or_insert(1.0) /= 4.0;
+                }
+            }
+            result => return result,
+        }
+    }
+}
+
+/// [`mesh`], with some edges' chord tolerance scaled down.
+fn mesh_with<M: MeshSource>(
+    source: &M,
+    tolerance: &Tolerance,
+    finer: &HashMap<M::Edge, f64>,
+) -> Result<MeshOf<M>, MeshErrorOf<M>> {
     let mut mesh = Mesh::default();
     let vertex_index: HashMap<M::Vertex, u32> = source
         .vertices()
@@ -84,7 +113,10 @@ pub fn mesh<M: MeshSource>(source: &M, tolerance: &Tolerance) -> Result<MeshOf<M
             tangent,
             edge.range,
             initial,
-            &edge_tolerance,
+            &Tolerance {
+                chord: edge_tolerance.chord * finer.get(&id).copied().unwrap_or(1.0),
+                ..edge_tolerance
+            },
             flat_enough,
         );
         let last = ts.len() - 1;
