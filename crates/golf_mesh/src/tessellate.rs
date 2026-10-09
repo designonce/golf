@@ -24,7 +24,10 @@ use crate::triangulate::triangulate;
 /// crosses itself (a hole close to the outline, whose chords cut across it),
 /// its edges are sampled more finely and the source meshed again.
 pub fn mesh<M: MeshSource>(source: &M, tolerance: &Tolerance) -> Result<MeshOf<M>, MeshErrorOf<M>> {
-    const RETRIES: usize = 4;
+    // A crossing that two rounds of sixteenfold finer sampling don't clear
+    // isn't the sampling's doing (the loops really cross), and more would
+    // only cost: each round samples the face's edges four times as finely.
+    const RETRIES: usize = 2;
     let mut finer: HashMap<M::Edge, f64> = HashMap::new();
     let mut attempt = 0;
     loop {
