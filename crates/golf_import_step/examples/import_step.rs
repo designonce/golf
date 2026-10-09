@@ -35,10 +35,17 @@ fn main() -> Result<(), Box<dyn Error>> {
         let mut failures = Vec::new();
         for (name, body) in &posed {
             faces += body.faces().len();
-            let size = body
-                .vertices()
-                .map(|(_, v)| v.point.coords.norm())
-                .fold(1.0, f64::max);
+            // A thousandth of the body's size.
+            let points: Vec<_> = body.vertices().map(|(_, v)| v.point.coords).collect();
+            let lo = points
+                .iter()
+                .fold(nalgebra::Vector3::repeat(f64::INFINITY), |a, p| a.inf(p));
+            let hi = points
+                .iter()
+                .fold(nalgebra::Vector3::repeat(f64::NEG_INFINITY), |a, p| {
+                    a.sup(p)
+                });
+            let size = (hi - lo).norm().max(1e-3);
             match mesh(body, &Tolerance::new(size * 1e-3, 0.5)) {
                 Ok(m) => {
                     meshed += 1;

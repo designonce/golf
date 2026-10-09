@@ -303,6 +303,15 @@ fn edge_range(
         }
         (None, _) => {}
     }
+    // A curve that stays at one point (a pole written as an edge) bounds
+    // nothing either.
+    let at = |t: f64| curve.apply(Point::new([t].into())).coords;
+    let scale = 1.0 + at(t0).norm();
+    let collapsed =
+        (1..=8).all(|i| (at(t0 + (t1 - t0) * i as f64 / 8.0) - at(t0)).norm() <= 1e-9 * scale);
+    if collapsed {
+        return Ok(None);
+    }
     if t1 - t0 <= 1e-12 * (1.0 + t0.abs()) {
         if closed {
             return Ok(None);
