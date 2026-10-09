@@ -2341,6 +2341,9 @@ dependencies = [
 [[package]]
 name = "golf"
 version = "0.1.0"
+dependencies = [
+ "golf_internal",
+]
 
 [[package]]
 name = "golf_assembly"
@@ -2412,6 +2415,25 @@ dependencies = [
  "golf_nurbs",
  "nalgebra",
  "thiserror 2.0.21",
+]
+
+[[package]]
+name = "golf_internal"
+version = "0.1.0"
+dependencies = [
+ "golf_assembly",
+ "golf_brep",
+ "golf_color",
+ "golf_export_step",
+ "golf_frame",
+ "golf_geom",
+ "golf_manifold",
+ "golf_mesh",
+ "golf_model",
+ "golf_nurbs",
+ "golf_sketch",
+ "golf_view",
+ "nalgebra",
 ]
 
 [[package]]

@@ -1,0 +1,42 @@
+[package]
+name = "golf_internal"
+description = "The crates making up golf, gathered for the golf crate to re-export"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[features]
+default = ["assembly", "export_step", "mesh", "model"]
+# Assemblies of parts placed in frames.
+assembly = ["dep:golf_assembly"]
+# Writing bodies and assemblies as STEP files.
+export_step = ["dep:golf_export_step", "assembly"]
+# Triangle meshes of bodies.
+mesh = ["dep:golf_mesh", "golf_brep/mesh"]
+# Sketch-and-extrude style modelling operations.
+model = ["dep:golf_model"]
+# A Bevy viewer for meshes. Pulls in Bevy, so off by default.
+view = ["dep:golf_view", "mesh"]
+
+[dependencies]
+golf_assembly = { workspace = true, optional = true }
+golf_brep = { workspace = true, default-features = false }
+golf_color.workspace = true
+golf_export_step = { workspace = true, optional = true }
+golf_frame.workspace = true
+golf_geom.workspace = true
+golf_manifold.workspace = true
+golf_mesh = { workspace = true, optional = true }
+golf_model = { workspace = true, optional = true }
+golf_nurbs.workspace = true
+golf_sketch.workspace = true
+golf_view = { workspace = true, optional = true }
+nalgebra.workspace = true
+
+[lints]
+workspace = true

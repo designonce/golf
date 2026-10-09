@@ -28,6 +28,7 @@ golf_color = { path = "crates/golf_color" }
 golf_export_step = { path = "crates/golf_export_step" }
 golf_frame = { path = "crates/golf_frame" }
 golf_geom = { path = "crates/golf_geom" }
+golf_internal = { path = "crates/golf_internal", default-features = false }
 golf_manifold = { path = "crates/golf_manifold" }
 golf_mesh = { path = "crates/golf_mesh" }
 golf_model = { path = "crates/golf_model" }
@@ -59,7 +60,25 @@ categories.workspace = true
 [lints]
 workspace = true
 
+[features]
+default = ["assembly", "export_step", "mesh", "model"]
+# Assemblies of parts placed in frames.
+assembly = ["golf_internal/assembly"]
+# Writing bodies and assemblies as STEP files.
+export_step = ["golf_internal/export_step"]
+# Triangle meshes of bodies.
+mesh = ["golf_internal/mesh"]
+# Sketch-and-extrude style modelling operations.
+model = ["golf_internal/model"]
+# A Bevy viewer for meshes. Pulls in Bevy, so off by default.
+view = ["golf_internal/view"]
+
 [dependencies]
+golf_internal.workspace = true
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
 
 # Geometry code is numeric and generic: unoptimised (nalgebra's generics are
 # compiled into our crates too) meshing runs about thirty times slower, which
