@@ -4,6 +4,13 @@ use crate::error::NurbsError;
 use crate::homogeneous::Homogeneous;
 
 /// A validated, non-decreasing knot vector for B-splines of a given degree.
+/// The highest degree evaluated without allocating; higher degrees take the
+/// general path.
+pub(crate) const MAX_FAST_DEGREE: usize = 11;
+
+/// Basis function values for one span, up to [`MAX_FAST_DEGREE`].
+pub(crate) type Basis = [f64; MAX_FAST_DEGREE + 1];
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct KnotVector {
     degree: usize,
@@ -146,6 +153,55 @@ impl KnotVector {
             n[j] = saved;
         }
         n
+    }
+
+    /// The `degree + 1` basis functions non-zero on `span` at `u`, and their
+    /// first derivatives, without allocating; `None` above [`MAX_FAST_DEGREE`].
+    ///
+    /// Each derivative is `p (N_{i,p-1} / (u_{i+p} - u_i) - N_{i+1,p-1} /
+    /// (u_{i+p+1} - u_{i+1}))`, from the degree `p - 1` functions found on the
+    /// way to degree `p`.
+    pub(crate) fn basis_and_first(&self, span: usize, u: f64) -> Option<(Basis, Basis)> {
+        let p = self.degree;
+        if p > MAX_FAST_DEGREE {
+            return None;
+        }
+        let knots = &self.knots;
+        let mut n = [0.0; MAX_FAST_DEGREE + 1];
+        let mut lower = [0.0; MAX_FAST_DEGREE + 1];
+        let mut left = [0.0; MAX_FAST_DEGREE + 1];
+        let mut right = [0.0; MAX_FAST_DEGREE + 1];
+        n[0] = 1.0;
+        for j in 1..=p {
+            if j == p {
+                lower = n;
+            }
+            left[j] = u - knots[span + 1 - j];
+            right[j] = knots[span + j] - u;
+            let mut saved = 0.0;
+            for r in 0..j {
+                let temp = n[r] / (right[r + 1] + left[j - r]);
+                n[r] = saved + right[r + 1] * temp;
+                saved = left[j - r] * temp;
+            }
+            n[j] = saved;
+        }
+        let mut dn = [0.0; MAX_FAST_DEGREE + 1];
+        if p > 0 {
+            // Function r is N_{i,p} with i = span - p + r; lower[r] is
+            // N_{span-p+1+r, p-1}.
+            let term = |value: f64, i: usize| {
+                let width = knots[i + p] - knots[i];
+                if width == 0.0 { 0.0 } else { value / width }
+            };
+            for (r, d) in dn.iter_mut().enumerate().take(p + 1) {
+                let i = span - p + r;
+                let below = if r > 0 { term(lower[r - 1], i) } else { 0.0 };
+                let above = if r < p { term(lower[r], i + 1) } else { 0.0 };
+                *d = p as f64 * (below - above);
+            }
+        }
+        Some((n, dn))
     }
 
     /// The basis functions non-zero on `span` and their derivatives up to

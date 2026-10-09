@@ -77,7 +77,7 @@ impl<S: Space<N>, const N: usize> Mapping<1, N> for NurbsCurve<S, N> {
     }
 
     fn jacobian(&self, t: Point<Self::From, 1>) -> SMatrix<f64, N, 1> {
-        self.geometry.derivatives(t.coords.x, 1)[1]
+        self.geometry.point_and_tangent(t.coords.x).1
     }
 }
 
@@ -179,8 +179,8 @@ impl<S: Space<3>> Mapping<2, 3> for NurbsSurface<S> {
     }
 
     fn jacobian(&self, uv: Point<Self::From, 2>) -> Matrix3x2<f64> {
-        let d = self.geometry.derivatives(uv.coords.x, uv.coords.y, 1);
-        Matrix3x2::from_columns(&[d[1][0], d[0][1]])
+        let (_, du, dv) = self.geometry.point_and_partials(uv.coords.x, uv.coords.y);
+        Matrix3x2::from_columns(&[du, dv])
     }
 }
 

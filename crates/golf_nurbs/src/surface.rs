@@ -103,7 +103,51 @@ impl<const D: usize> NurbsSurface<D> {
 
     /// The point at `(u, v)`, each clamped into its domain.
     pub fn point(&self, u: f64, v: f64) -> SVector<f64, D> {
-        self.derivatives(u, v, 0)[0][0]
+        self.point_and_partials(u, v).0
+    }
+
+    /// The point at `(u, v)` and its first partial derivatives `(S, ∂S/∂u,
+    /// ∂S/∂v)`: what evaluating a surface usually needs, without allocating
+    /// (for degrees up to 11).
+    pub fn point_and_partials(
+        &self,
+        u: f64,
+        v: f64,
+    ) -> (SVector<f64, D>, SVector<f64, D>, SVector<f64, D>) {
+        let (p, q) = self.degrees();
+        let ((u0, u1), (v0, v1)) = self.domain();
+        let (span_u, span_v) = (self.knots_u.span(u), self.knots_v.span(v));
+        let (u, v) = (u.clamp(u0, u1), v.clamp(v0, v1));
+        let (Some((nu, dnu)), Some((nv, dnv))) = (
+            self.knots_u.basis_and_first(span_u, u),
+            self.knots_v.basis_and_first(span_v, v),
+        ) else {
+            let d = self.derivatives(u, v, 1);
+            return (d[0][0], d[1][0], d[0][1]);
+        };
+        // Homogeneous point and partials, then the quotient rule.
+        let (mut a, mut au, mut av) = (
+            Homogeneous::zero(),
+            Homogeneous::zero(),
+            Homogeneous::zero(),
+        );
+        for s in 0..=q {
+            let (mut row, mut row_u) = (Homogeneous::zero(), Homogeneous::zero());
+            for r in 0..=p {
+                let c = self.at(span_u - p + r, span_v - q + s);
+                row += c * nu[r];
+                row_u += c * dnu[r];
+            }
+            a += row * nv[s];
+            au += row_u * nv[s];
+            av += row * dnv[s];
+        }
+        let point = a.wp / a.w;
+        (
+            point,
+            (au.wp - point * au.w) / a.w,
+            (av.wp - point * av.w) / a.w,
+        )
     }
 
     /// The point at `(u, v)` and its partial derivatives up to total `order`:
@@ -363,6 +407,31 @@ mod tests {
             let p = s.point(u, v);
             assert!((p.xy().norm() - 2.0).abs() < 1e-12);
             assert!((p.z - 3.0 * v).abs() < 1e-12);
+        }
+    }
+
+    #[test]
+    fn point_and_partials_match_derivatives() {
+        let s = wavy();
+        let ((u0, u1), (v0, v1)) = s.domain();
+        for a in 0..=6 {
+            for b in 0..=6 {
+                let (u, v) = (
+                    u0 + (u1 - u0) * a as f64 / 6.0,
+                    v0 + (v1 - v0) * b as f64 / 6.0,
+                );
+                let d = s.derivatives(u, v, 1);
+                let (point, du, dv) = s.point_and_partials(u, v);
+                assert!((point - d[0][0]).norm() < 1e-12, "({u}, {v})");
+                assert!(
+                    (du - d[1][0]).norm() < 1e-9 * (1.0 + du.norm()),
+                    "({u}, {v})"
+                );
+                assert!(
+                    (dv - d[0][1]).norm() < 1e-9 * (1.0 + dv.norm()),
+                    "({u}, {v})"
+                );
+            }
         }
     }
 

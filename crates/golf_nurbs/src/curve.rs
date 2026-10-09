@@ -137,6 +137,25 @@ impl<const D: usize> NurbsCurve<D> {
             .point()
     }
 
+    /// The point at `u` and its first derivative, without allocating (for
+    /// degrees up to 11).
+    pub fn point_and_tangent(&self, u: f64) -> (SVector<f64, D>, SVector<f64, D>) {
+        let span = self.knots.span(u);
+        let u = self.clamp(u);
+        let Some((n, dn)) = self.knots.basis_and_first(span, u) else {
+            let d = self.derivatives(u, 1);
+            return (d[0], d[1]);
+        };
+        let first = span - self.degree();
+        let (mut a, mut da) = (Homogeneous::zero(), Homogeneous::zero());
+        for (r, &c) in self.points[first..=span].iter().enumerate() {
+            a += c * n[r];
+            da += c * dn[r];
+        }
+        let point = a.wp / a.w;
+        (point, (da.wp - point * da.w) / a.w)
+    }
+
     /// The point at `u` and its derivatives: `result[k]` is the `k`th
     /// derivative, for `k` up to `order` (A3.2 and A4.2). `u` is clamped into
     /// the domain; at a knot, derivatives are taken from the span after it
@@ -596,6 +615,20 @@ mod tests {
                     "u {u} k {k}"
                 );
             }
+        }
+    }
+
+    #[test]
+    fn point_and_tangent_match_derivatives() {
+        let c = cubic();
+        for u in [0.0, 0.05, 0.3, 0.4, 0.5, 0.65, 0.8, 0.9, 1.0] {
+            let d = c.derivatives(u, 1);
+            let (point, tangent) = c.point_and_tangent(u);
+            assert!((point - d[0]).norm() < 1e-12, "u {u}");
+            assert!(
+                (tangent - d[1]).norm() < 1e-9 * (1.0 + d[1].norm()),
+                "u {u}"
+            );
         }
     }
 
