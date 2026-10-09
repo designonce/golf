@@ -83,12 +83,23 @@ pub(crate) fn face_loops<M: MeshSource>(
                 });
             }
         }
-        // The same vertex reached through a pcurve and through projection can
-        // land a rounding error apart; those are one point. (At a pole one
-        // vertex has genuinely different parameters, far apart.)
+        // The same vertex reached through two coedges' pcurves can land a
+        // little apart (an edge's end a little off its vertex, in a file);
+        // those are one point. At a pole one vertex has genuinely different
+        // parameters, far apart: a sizeable fraction of the loop.
+        let extent = {
+            let lo = points
+                .iter()
+                .fold(Vector2::repeat(f64::INFINITY), |a, p| a.inf(&p.uv));
+            let hi = points
+                .iter()
+                .fold(Vector2::repeat(f64::NEG_INFINITY), |a, p| a.sup(&p.uv));
+            (hi - lo).norm()
+        };
         let same = |a: &BoundaryPoint, b: &BoundaryPoint| {
             a.uv == b.uv
-                || (a.vertex == b.vertex && (a.uv - b.uv).norm() <= 1e-9 * (1.0 + a.uv.norm()))
+                || (a.vertex == b.vertex
+                    && (a.uv - b.uv).norm() <= 1e-9 * (1.0 + a.uv.norm()) + 1e-6 * extent)
         };
         points.dedup_by(|b, a| same(a, b));
         if points.len() > 1 && same(&points[0], &points[points.len() - 1]) {
