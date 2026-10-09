@@ -548,7 +548,9 @@ pub(crate) enum Curve2 {
 }
 
 /// `profile` turned a full turn about the axis through `origin` along unit
-/// `z`, as a rational NURBS surface: u along the profile, v round the axis.
+/// `z`, as a rational NURBS surface: u round the axis and v along the
+/// profile, as STEP's surface of revolution has them, so its normal faces the
+/// same way.
 fn revolve(
     id: Id,
     profile: &golf_nurbs::NurbsCurve<3>,
@@ -576,32 +578,27 @@ fn revolve(
         TAU,
     );
     let arc_count = unit.control_point_count();
-    let mut points = Vec::with_capacity(count);
-    let mut weights = Vec::with_capacity(count);
-    for i in 0..count {
+    // Rotating a profile point's (a, b) is linear in (cos, sin), so the
+    // arc's control points rotate it exactly.
+    let rotated = |i: usize, j: usize| {
         let d = profile.control_point(i) - origin;
-        let height = d.dot(&z);
         let (a, b) = (d.dot(&x), d.dot(&y));
-        let centre = origin + z * height;
-        // Rotating (a, b) is linear in (cos, sin), so the arc's control
-        // points rotate it exactly.
-        points.push(
-            (0..arc_count)
-                .map(|j| {
-                    let c = unit.control_point(j);
-                    centre + x * (a * c.x - b * c.y) + y * (a * c.y + b * c.x)
-                })
-                .collect(),
-        );
-        weights.push(
-            (0..arc_count)
-                .map(|j| profile.weight(i) * unit.weight(j))
-                .collect(),
-        );
-    }
+        let c = unit.control_point(j);
+        origin + z * d.dot(&z) + x * (a * c.x - b * c.y) + y * (a * c.y + b * c.x)
+    };
+    let points = (0..arc_count)
+        .map(|j| (0..count).map(|i| rotated(i, j)).collect())
+        .collect();
+    let weights = (0..arc_count)
+        .map(|j| {
+            (0..count)
+                .map(|i| profile.weight(i) * unit.weight(j))
+                .collect()
+        })
+        .collect();
     golf_nurbs::NurbsSurface::new(
-        (profile.degree(), profile.knots().knots().to_vec()),
         (2, unit.knots().knots().to_vec()),
+        (profile.degree(), profile.knots().knots().to_vec()),
         points,
         Some(weights),
     )
