@@ -20,9 +20,11 @@ nalgebra.workspace = true
 thiserror.workspace = true
 
 [dev-dependencies]
+golf_color.workspace = true
 golf_export_step.workspace = true
 golf_frame.workspace = true
 golf_mesh.workspace = true
+golf_view.workspace = true
 
 [lints]
 workspace = true

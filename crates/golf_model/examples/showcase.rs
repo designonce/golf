@@ -1,5 +1,5 @@
-//! Builds one of everything `golf_model` can make, and writes them all to a
-//! STEP file.
+//! Builds one of everything `golf_model` can make, writes them all to a STEP
+//! file, and opens them in a viewer.
 //!
 //! ```text
 //! cargo run -p golf_model --example showcase -- showcase.step
@@ -13,6 +13,7 @@ use core::f64::consts::TAU;
 use std::error::Error;
 
 use golf_brep::Body;
+use golf_color::Color;
 use golf_export_step::StepFile;
 use golf_export_step::StepOptions;
 use golf_geom::Placement;
@@ -39,10 +40,21 @@ use golf_model::primitives::axial_sketch;
 use golf_model::revolve;
 use golf_model::revolve_about;
 use golf_model::revolve_by;
+use golf_view::Viewer;
 use nalgebra::Vector2;
 use nalgebra::Vector3;
 
 type Part = (String, Body<World>);
+
+/// Colours for the parts in turn, so neighbours stand apart.
+const PALETTE: [Color; 6] = [
+    Color::rgb(70, 130, 180),
+    Color::rgb(230, 160, 50),
+    Color::rgb(90, 170, 110),
+    Color::rgb(200, 80, 80),
+    Color::rgb(150, 110, 190),
+    Color::rgb(170, 175, 180),
+];
 
 fn main() -> Result<(), Box<dyn Error>> {
     let path = std::env::args()
@@ -124,7 +136,8 @@ fn main() -> Result<(), Box<dyn Error>> {
         name: "golf showcase".to_string(),
         ..StepOptions::default()
     })?;
-    for (name, body) in &parts {
+    let mut viewer = Viewer::new("golf showcase");
+    for (index, (name, body)) in parts.iter().enumerate() {
         if let Err(errors) = body.validate(1e-9) {
             return Err(format!("{name} is invalid: {errors:?}").into());
         }
@@ -143,9 +156,14 @@ fn main() -> Result<(), Box<dyn Error>> {
             tessellation.signed_volume()
         );
         file.add_body(name, body)?;
+        let part_color = PALETTE[index % PALETTE.len()];
+        viewer.add_mesh(&tessellation, |&face| {
+            body.face_color(face).unwrap_or(part_color)
+        });
     }
     std::fs::write(&path, file.finish())?;
     println!("wrote {} parts to {path}", parts.len());
+    viewer.run();
     Ok(())
 }
 
