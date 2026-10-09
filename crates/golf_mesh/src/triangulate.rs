@@ -82,11 +82,34 @@ pub(crate) fn triangulate<M: MeshSource>(
 
     let mut cdt = Cdt::new();
     let mut boundary_vertex: HashMap<FixedVertexHandle, u32> = HashMap::new();
+    // A mesh vertex reached more than once (where a loop touches itself, or
+    // touches another) is one point, though its parameters may differ by a
+    // rounding error each time; two points that close would make constraints
+    // cross. (At a pole one vertex has parameters far apart: those stay.)
+    let extent = {
+        let uvs = loops.iter().flatten().map(|p| p.uv);
+        let lo = uvs
+            .clone()
+            .fold(Vector2::repeat(f64::INFINITY), |a, b| a.inf(&b));
+        let hi = uvs.fold(Vector2::repeat(f64::NEG_INFINITY), |a, b| a.sup(&b));
+        (hi - lo).norm()
+    };
+    let mut inserted: HashMap<u32, Vec<(Vector2<f64>, FixedVertexHandle)>> = HashMap::new();
     for l in loops {
         let handles = l
             .iter()
             .map(|p| {
-                let handle = cdt.insert(to_cdt(p.uv)).map_err(fail)?;
+                let close = |uv: &Vector2<f64>| {
+                    (uv - p.uv).norm() <= 1e-9 * (1.0 + p.uv.norm()) + 1e-6 * extent
+                };
+                let earlier = inserted
+                    .get(&p.vertex)
+                    .and_then(|seen| seen.iter().find(|(uv, _)| close(uv)).map(|&(_, h)| h));
+                let handle = match earlier {
+                    Some(handle) => handle,
+                    None => cdt.insert(to_cdt(p.uv)).map_err(fail)?,
+                };
+                inserted.entry(p.vertex).or_default().push((p.uv, handle));
                 boundary_vertex.entry(handle).or_insert(p.vertex);
                 Ok(handle)
             })
