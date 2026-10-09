@@ -16,6 +16,7 @@ categories = ["graphics", "mathematics", "science"]
 
 [workspace.dependencies]
 golf_brep = { path = "crates/golf_brep" }
+golf_export_step = { path = "crates/golf_export_step" }
 golf_frame = { path = "crates/golf_frame" }
 golf_geom = { path = "crates/golf_geom" }
 golf_manifold = { path = "crates/golf_manifold" }

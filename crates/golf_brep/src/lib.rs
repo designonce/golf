@@ -18,6 +18,8 @@
 mod body;
 mod entity;
 mod error;
+#[cfg(feature = "export_step")]
+mod export_step;
 mod id;
 #[cfg(feature = "mesh")]
 mod mesh;

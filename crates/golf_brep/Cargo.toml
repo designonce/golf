@@ -11,11 +11,14 @@ keywords.workspace = true
 categories.workspace = true
 
 [features]
-default = ["mesh"]
+default = ["export_step", "mesh"]
+# Implements golf_export_step::StepSource for Body.
+export_step = ["dep:golf_export_step"]
 # Implements golf_mesh::MeshSource for Body.
 mesh = ["dep:golf_mesh"]
 
 [dependencies]
+golf_export_step = { workspace = true, optional = true }
 golf_geom.workspace = true
 golf_mesh = { workspace = true, optional = true }
 golf_manifold.workspace = true

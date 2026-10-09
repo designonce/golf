@@ -1,0 +1,21 @@
+[package]
+name = "golf_export_step"
+description = "Writing boundary-represented bodies as STEP (AP242) files"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[dependencies]
+golf_geom.workspace = true
+golf_manifold.workspace = true
+golf_nurbs.workspace = true
+nalgebra.workspace = true
+thiserror.workspace = true
+
+[lints]
+workspace = true
