@@ -3,7 +3,10 @@
 //! Coordinates are a sketch plane's local `(x, y)`; placing the plane in space,
 //! and turning regions into solids, is `golf_model`'s business.
 
+mod corner;
 mod error;
+mod locus;
+mod offset;
 mod profile;
 mod region;
 mod segment;
