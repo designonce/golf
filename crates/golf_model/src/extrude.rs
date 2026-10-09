@@ -41,81 +41,16 @@ pub fn extrude<S: Space<3>>(
     };
     let height = distance.abs();
     let top = shifted(&base, height);
-    let up = base.vector(Vector3::z());
 
     let mut body = Body::with_tag(base.origin.tag());
     let mut bottom_loops = Vec::new();
     let mut top_loops = Vec::new();
     let mut sides = Vec::new();
     for profile in region.profiles() {
-        let segments = profile.segments();
-        let n = segments.len();
-        let at = |placement: &Placement<S>, p: Vector2<f64>| {
-            placement.point(Vector3::new(p.x, p.y, 0.0))
-        };
-        let bottom_vertices: Vec<VertexId> = segments
-            .iter()
-            .map(|s| body.add_vertex(at(&base, s.start())))
-            .collect::<Result<_, _>>()?;
-        let top_vertices: Vec<VertexId> = segments
-            .iter()
-            .map(|s| body.add_vertex(at(&top, s.start())))
-            .collect::<Result<_, _>>()?;
-        // Vertical edges up from each vertex, parametrised by height.
-        let verticals: Vec<EdgeId> = (0..n)
-            .map(|k| {
-                let line = Line::new(at(&base, segments[k].start()), up);
-                body.add_edge(line, (0.0, height), bottom_vertices[k], top_vertices[k])
-            })
-            .collect::<Result<_, _>>()?;
-
-        let mut bottom_coedges = Vec::new();
-        let mut top_coedges = Vec::new();
-        for (k, segment) in segments.iter().enumerate() {
-            let (a, b) = (k, (k + 1) % n);
-            let swept = SweptSegment::new(segment);
-            let edge = |body: &mut Body<S>, placement: &Placement<S>, vertices: &[VertexId]| {
-                let (start, end) = match swept.forward {
-                    true => (vertices[a], vertices[b]),
-                    false => (vertices[b], vertices[a]),
-                };
-                body.add_edge(swept.curve(placement), swept.range(), start, end)
-            };
-            let bottom_edge = edge(&mut body, &base, &bottom_vertices)?;
-            let top_edge = edge(&mut body, &top, &top_vertices)?;
-
-            // The side face: in its (u, v) the bottom edge runs along v = 0 with
-            // u the edge's own parameter, the top along v = height, and the
-            // verticals up at u = t_to (B) and down at u = t_from (A).
-            let side = Loop::new(vec![
-                Coedge::new(bottom_edge, !swept.forward)
-                    .with_pcurve(uv_line([0.0, 0.0], [1.0, 0.0])),
-                Coedge::new(verticals[b], false)
-                    .with_pcurve(uv_line([swept.t_to, 0.0], [0.0, 1.0])),
-                Coedge::new(top_edge, swept.forward)
-                    .with_pcurve(uv_line([0.0, height], [1.0, 0.0])),
-                Coedge::new(verticals[a], true)
-                    .with_pcurve(uv_line([swept.t_from, 0.0], [0.0, 1.0])),
-            ]);
-            let (surface, same_sense) = swept.side(&base);
-            sides.push(body.add_face(surface, same_sense, vec![side])?);
-
-            // The caps' uv are sketch coordinates, so a line's pcurve is the
-            // line itself.
-            let cap_pcurve = swept.cap_pcurve();
-            let cap = |edge, reversed| {
-                let coedge = Coedge::new(edge, reversed);
-                match &cap_pcurve {
-                    Some(line) => coedge.with_pcurve(line.clone()),
-                    None => coedge,
-                }
-            };
-            top_coedges.push(cap(top_edge, !swept.forward));
-            bottom_coedges.push(cap(bottom_edge, swept.forward));
-        }
-        bottom_coedges.reverse();
-        bottom_loops.push(Loop::new(bottom_coedges));
-        top_loops.push(Loop::new(top_coedges));
+        let walls = walls(&mut body, &base, height, profile.segments())?;
+        bottom_loops.push(walls.bottom);
+        top_loops.push(walls.top);
+        sides.extend(walls.sides);
     }
 
     // The bottom plane's normal points up, into the solid, so the face flips it.
@@ -127,8 +62,93 @@ pub fn extrude<S: Space<3>>(
     Ok(body)
 }
 
+/// The side faces of one profile extruded `height` up from `base`, and the
+/// loops its edges make on the bottom and top caps (each running the edges
+/// the other way from the sides).
+pub(crate) struct Walls<S: Space<3>> {
+    pub bottom: Loop<S>,
+    pub top: Loop<S>,
+    pub sides: Vec<golf_brep::FaceId>,
+}
+
+pub(crate) fn walls<S: Space<3>>(
+    body: &mut Body<S>,
+    base: &Placement<S>,
+    height: f64,
+    segments: &[Segment],
+) -> Result<Walls<S>, ModelError> {
+    let top = shifted(base, height);
+    let up = base.vector(Vector3::z());
+    let n = segments.len();
+    let at =
+        |placement: &Placement<S>, p: Vector2<f64>| placement.point(Vector3::new(p.x, p.y, 0.0));
+    let bottom_vertices: Vec<VertexId> = segments
+        .iter()
+        .map(|s| body.add_vertex(at(base, s.start())))
+        .collect::<Result<_, _>>()?;
+    let top_vertices: Vec<VertexId> = segments
+        .iter()
+        .map(|s| body.add_vertex(at(&top, s.start())))
+        .collect::<Result<_, _>>()?;
+    // Vertical edges up from each vertex, parametrised by height.
+    let verticals: Vec<EdgeId> = (0..n)
+        .map(|k| {
+            let line = Line::new(at(base, segments[k].start()), up);
+            body.add_edge(line, (0.0, height), bottom_vertices[k], top_vertices[k])
+        })
+        .collect::<Result<_, _>>()?;
+
+    let mut bottom_coedges = Vec::new();
+    let mut top_coedges = Vec::new();
+    let mut sides = Vec::new();
+    for (k, segment) in segments.iter().enumerate() {
+        let (a, b) = (k, (k + 1) % n);
+        let swept = SweptSegment::new(segment);
+        let edge = |body: &mut Body<S>, placement: &Placement<S>, vertices: &[VertexId]| {
+            let (start, end) = match swept.forward {
+                true => (vertices[a], vertices[b]),
+                false => (vertices[b], vertices[a]),
+            };
+            body.add_edge(swept.curve(placement), swept.range(), start, end)
+        };
+        let bottom_edge = edge(body, base, &bottom_vertices)?;
+        let top_edge = edge(body, &top, &top_vertices)?;
+
+        // The side face: in its (u, v) the bottom edge runs along v = 0 with
+        // u the edge's own parameter, the top along v = height, and the
+        // verticals up at u = t_to (B) and down at u = t_from (A).
+        let side = Loop::new(vec![
+            Coedge::new(bottom_edge, !swept.forward).with_pcurve(uv_line([0.0, 0.0], [1.0, 0.0])),
+            Coedge::new(verticals[b], false).with_pcurve(uv_line([swept.t_to, 0.0], [0.0, 1.0])),
+            Coedge::new(top_edge, swept.forward).with_pcurve(uv_line([0.0, height], [1.0, 0.0])),
+            Coedge::new(verticals[a], true).with_pcurve(uv_line([swept.t_from, 0.0], [0.0, 1.0])),
+        ]);
+        let (surface, same_sense) = swept.side(base);
+        sides.push(body.add_face(surface, same_sense, vec![side])?);
+
+        // The caps' uv are sketch coordinates, so a line's pcurve is the
+        // line itself.
+        let cap_pcurve = swept.cap_pcurve();
+        let cap = |edge, reversed| {
+            let coedge = Coedge::new(edge, reversed);
+            match &cap_pcurve {
+                Some(line) => coedge.with_pcurve(line.clone()),
+                None => coedge,
+            }
+        };
+        top_coedges.push(cap(top_edge, !swept.forward));
+        bottom_coedges.push(cap(bottom_edge, swept.forward));
+    }
+    bottom_coedges.reverse();
+    Ok(Walls {
+        bottom: Loop::new(bottom_coedges),
+        top: Loop::new(top_coedges),
+        sides,
+    })
+}
+
 /// `placement` moved `distance` along its own z axis.
-fn shifted<S: Space<3>>(placement: &Placement<S>, distance: f64) -> Placement<S> {
+pub(crate) fn shifted<S: Space<3>>(placement: &Placement<S>, distance: f64) -> Placement<S> {
     Placement::new(
         placement.point(Vector3::new(0.0, 0.0, distance)),
         placement.rotation,

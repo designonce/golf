@@ -739,3 +739,24 @@ mod pipes {
         ));
     }
 }
+
+#[test]
+fn hollow_tubes_and_cups() {
+    let (a, b, h, wall, floor) = (4.0, 3.0, 2.0, 0.25, 0.5);
+    let rectangle = Profile::rectangle(Vector2::zeros(), Vector2::new(a, b)).unwrap();
+    let hollow_area = (a - 2.0 * wall) * (b - 2.0 * wall);
+    let tube = golf_model::extrude_hollow(&tilted(), &rectangle, h, wall, None).unwrap();
+    assert_solid(&tube, (a * b - hollow_area) * h, 1);
+    let cup = golf_model::extrude_hollow(&tilted(), &rectangle, h, wall, Some(floor)).unwrap();
+    assert_solid(&cup, a * b * h - hollow_area * (h - floor), 0);
+    // Round: the offset circle.
+    let (r, wall) = (2.0, 0.3);
+    let disc = Profile::circle(Vector2::zeros(), r).unwrap();
+    let mug = golf_model::extrude_hollow(&tilted(), &disc, h, wall, Some(floor)).unwrap();
+    assert_solid(
+        &mug,
+        PI * r * r * h - PI * (r - wall).powi(2) * (h - floor),
+        0,
+    );
+    assert!(golf_model::extrude_hollow(&tilted(), &disc, h, wall, Some(h)).is_err());
+}

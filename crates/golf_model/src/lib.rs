@@ -15,6 +15,7 @@
 mod ends;
 mod error;
 mod extrude;
+mod hollow;
 mod loft;
 mod pattern;
 mod pipe;
@@ -35,6 +36,7 @@ pub use golf_sketch::ProfileBuilder;
 pub use golf_sketch::Region;
 pub use golf_sketch::Segment;
 pub use golf_sketch::SketchError;
+pub use hollow::extrude_hollow;
 pub use loft::loft;
 pub use pattern::circular_pattern;
 pub use pattern::linear_pattern;
