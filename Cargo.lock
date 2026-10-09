@@ -116,12 +116,21 @@ dependencies = [
  "golf_geom",
  "golf_manifold",
  "golf_mesh",
+ "golf_sketch",
  "nalgebra",
  "thiserror",
 ]
 
 [[package]]
 name = "golf_nurbs"
+version = "0.1.0"
+dependencies = [
+ "nalgebra",
+ "thiserror",
+]
+
+[[package]]
+name = "golf_sketch"
 version = "0.1.0"
 dependencies = [
  "nalgebra",

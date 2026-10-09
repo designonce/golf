@@ -15,15 +15,14 @@
 mod error;
 mod extrude;
 pub mod primitives;
-mod profile;
-mod region;
 mod revolve;
-mod segment;
 
 pub use error::ModelError;
 pub use extrude::extrude;
-pub use profile::Profile;
-pub use profile::ProfileBuilder;
-pub use region::Region;
+// The sketch types, for convenience.
+pub use golf_sketch::Profile;
+pub use golf_sketch::ProfileBuilder;
+pub use golf_sketch::Region;
+pub use golf_sketch::Segment;
+pub use golf_sketch::SketchError;
 pub use revolve::revolve;
-pub use segment::Segment;

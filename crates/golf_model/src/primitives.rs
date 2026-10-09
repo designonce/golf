@@ -6,15 +6,15 @@ use core::f64::consts::PI;
 use golf_brep::Body;
 use golf_geom::Placement;
 use golf_manifold::Space;
+use golf_sketch::Profile;
+use golf_sketch::Region;
+use golf_sketch::Segment;
 use nalgebra::Vector2;
 use nalgebra::Vector3;
 
 use crate::error::ModelError;
 use crate::extrude::extrude;
-use crate::profile::Profile;
-use crate::region::Region;
 use crate::revolve::revolve;
-use crate::segment::Segment;
 
 /// A box with a corner at the placement's origin, extending `size` along its
 /// local axes.

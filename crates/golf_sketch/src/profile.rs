@@ -3,7 +3,7 @@ use core::f64::consts::TAU;
 
 use nalgebra::Vector2;
 
-use crate::error::ModelError;
+use crate::error::SketchError;
 use crate::segment::Segment;
 
 /// A closed chain of segments in a sketch: each starts where the last ended,
@@ -18,9 +18,9 @@ const JOIN_TOLERANCE: f64 = 1e-9;
 
 impl Profile {
     /// Checks `segments` form a closed, non-degenerate chain enclosing some area.
-    pub fn new(segments: Vec<Segment>) -> Result<Self, ModelError> {
+    pub fn new(segments: Vec<Segment>) -> Result<Self, SketchError> {
         if segments.is_empty() {
-            return Err(ModelError::EmptyProfile);
+            return Err(SketchError::EmptyProfile);
         }
         let size = segments
             .iter()
@@ -37,28 +37,28 @@ impl Profile {
                 }
             };
             if degenerate {
-                return Err(ModelError::DegenerateSegment { index });
+                return Err(SketchError::DegenerateSegment { index });
             }
         }
         if segments.len() > 1 && segments.iter().any(Segment::is_full_circle) {
-            return Err(ModelError::CircleInChain);
+            return Err(SketchError::CircleInChain);
         }
         for (index, segment) in segments.iter().enumerate() {
             let next = &segments[(index + 1) % segments.len()];
             let gap = (segment.end() - next.start()).norm();
             if gap > tolerance {
-                return Err(ModelError::OpenProfile { index, gap });
+                return Err(SketchError::OpenProfile { index, gap });
             }
         }
         let profile = Self { segments };
         if profile.signed_area().abs() <= tolerance * tolerance {
-            return Err(ModelError::ZeroArea);
+            return Err(SketchError::ZeroArea);
         }
         Ok(profile)
     }
 
     /// The polygon through `points`, closed back to the first.
-    pub fn polygon(points: &[Vector2<f64>]) -> Result<Self, ModelError> {
+    pub fn polygon(points: &[Vector2<f64>]) -> Result<Self, SketchError> {
         let segments = (0..points.len())
             .map(|i| Segment::Line {
                 start: points[i],
@@ -69,13 +69,13 @@ impl Profile {
     }
 
     /// The axis-aligned rectangle with opposite corners `a` and `b`.
-    pub fn rectangle(a: Vector2<f64>, b: Vector2<f64>) -> Result<Self, ModelError> {
+    pub fn rectangle(a: Vector2<f64>, b: Vector2<f64>) -> Result<Self, SketchError> {
         Self::polygon(&[a, Vector2::new(b.x, a.y), b, Vector2::new(a.x, b.y)])
     }
 
     /// The circle about `center`, starting and ending at angle π (its point
     /// furthest along −x).
-    pub fn circle(center: Vector2<f64>, radius: f64) -> Result<Self, ModelError> {
+    pub fn circle(center: Vector2<f64>, radius: f64) -> Result<Self, SketchError> {
         Self::new(vec![Segment::Arc {
             center,
             radius,
@@ -118,7 +118,7 @@ pub struct ProfileBuilder {
     cursor: Vector2<f64>,
     segments: Vec<Segment>,
     /// The first mistake, reported by [`Self::close`].
-    error: Option<ModelError>,
+    error: Option<SketchError>,
 }
 
 impl ProfileBuilder {
@@ -140,7 +140,7 @@ impl ProfileBuilder {
         let to = end - center;
         let distance = (to.norm() - from.norm()).abs();
         if distance > JOIN_TOLERANCE * (1.0 + from.norm()) && self.error.is_none() {
-            self.error = Some(ModelError::ArcEndOffCircle { distance });
+            self.error = Some(SketchError::ArcEndOffCircle { distance });
         }
         let start_angle = from.y.atan2(from.x);
         let mut sweep = (to.y.atan2(to.x) - start_angle).rem_euclid(TAU);
@@ -159,7 +159,7 @@ impl ProfileBuilder {
 
     /// Finishes the profile, adding a line back to the start if the pen isn't
     /// there already.
-    pub fn close(mut self) -> Result<Profile, ModelError> {
+    pub fn close(mut self) -> Result<Profile, SketchError> {
         if let Some(error) = self.error {
             return Err(error);
         }
@@ -231,20 +231,20 @@ mod tests {
         ];
         assert!(matches!(
             Profile::new(open),
-            Err(ModelError::OpenProfile { index: 1, .. })
+            Err(SketchError::OpenProfile { index: 1, .. })
         ));
-        assert_eq!(Profile::new(vec![]), Err(ModelError::EmptyProfile));
+        assert_eq!(Profile::new(vec![]), Err(SketchError::EmptyProfile));
         assert_eq!(
             Profile::polygon(&[
                 Vector2::new(0.0, 0.0),
                 Vector2::new(1.0, 0.0),
                 Vector2::new(2.0, 0.0)
             ]),
-            Err(ModelError::ZeroArea)
+            Err(SketchError::ZeroArea)
         );
         let off = Profile::builder(Vector2::new(1.0, 0.0))
             .arc_to(Vector2::new(0.0, 2.0), Vector2::zeros(), true)
             .close();
-        assert!(matches!(off, Err(ModelError::ArcEndOffCircle { .. })));
+        assert!(matches!(off, Err(SketchError::ArcEndOffCircle { .. })));
     }
 }

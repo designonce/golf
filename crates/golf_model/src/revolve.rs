@@ -18,13 +18,13 @@ use golf_geom::Plane;
 use golf_geom::Sphere;
 use golf_geom::Torus;
 use golf_manifold::Space;
+use golf_sketch::Region;
+use golf_sketch::Segment;
 use nalgebra::Vector2;
 use nalgebra::Vector3;
 
 use crate::error::ModelError;
 use crate::extrude::uv_line;
-use crate::region::Region;
-use crate::segment::Segment;
 
 /// Revolves `region`, drawn in the sketch plane `plane`, a full turn about the
 /// sketch's y axis into a solid.

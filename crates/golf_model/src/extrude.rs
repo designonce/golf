@@ -14,12 +14,12 @@ use golf_geom::Plane;
 use golf_manifold::Point;
 use golf_manifold::Space;
 use golf_manifold::Vector;
+use golf_sketch::Region;
+use golf_sketch::Segment;
 use nalgebra::Vector2;
 use nalgebra::Vector3;
 
 use crate::error::ModelError;
-use crate::region::Region;
-use crate::segment::Segment;
 
 /// Extrudes `region`, drawn in the sketch plane `plane`, along the plane's
 /// normal by `distance` (backwards if negative) into a solid.
