@@ -46,6 +46,19 @@ name = "golf"
 version = "0.1.0"
 
 [[package]]
+name = "golf_assembly"
+version = "0.1.0"
+dependencies = [
+ "golf_brep",
+ "golf_export_step",
+ "golf_geom",
+ "golf_manifold",
+ "golf_model",
+ "nalgebra",
+ "thiserror",
+]
+
+[[package]]
 name = "golf_brep"
 version = "0.1.0"
 dependencies = [

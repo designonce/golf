@@ -15,6 +15,7 @@ keywords = ["cad", "geometry", "kernel", "brep", "modeling"]
 categories = ["graphics", "mathematics", "science"]
 
 [workspace.dependencies]
+golf_assembly = { path = "crates/golf_assembly" }
 golf_brep = { path = "crates/golf_brep" }
 golf_export_step = { path = "crates/golf_export_step" }
 golf_frame = { path = "crates/golf_frame" }

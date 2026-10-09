@@ -1,0 +1,34 @@
+[package]
+name = "golf_assembly"
+description = "Assemblies of parts and sub-assemblies, placed and instanced"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[features]
+default = ["export_step"]
+# Writes assemblies as STEP assembly structures.
+export_step = ["dep:golf_export_step"]
+
+[dependencies]
+golf_brep.workspace = true
+golf_export_step = { workspace = true, optional = true }
+golf_geom.workspace = true
+golf_manifold.workspace = true
+nalgebra.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+golf_model.workspace = true
+
+[lints]
+workspace = true
+
+[[example]]
+name = "cart"
+required-features = ["export_step"]
