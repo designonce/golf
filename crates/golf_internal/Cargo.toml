@@ -11,11 +11,14 @@ keywords.workspace = true
 categories.workspace = true
 
 [features]
-default = ["assembly", "export_step", "mesh", "model"]
+default = ["assembly", "export_step", "import_step", "mesh", "model"]
 # Assemblies of parts placed in frames.
 assembly = ["dep:golf_assembly"]
 # Writing bodies and assemblies as STEP files.
 export_step = ["dep:golf_export_step", "assembly"]
+# Healing bodies from outside sources, and reading STEP files into bodies
+# and assemblies (with the Part 21 reader as `step`).
+import_step = ["dep:golf_import_step", "dep:golf_heal", "dep:golf_step", "assembly"]
 # Triangle meshes of bodies.
 mesh = ["dep:golf_mesh", "golf_brep/mesh"]
 # Sketch-and-extrude style modelling operations.
@@ -30,11 +33,14 @@ golf_color.workspace = true
 golf_export_step = { workspace = true, optional = true }
 golf_frame.workspace = true
 golf_geom.workspace = true
+golf_heal = { workspace = true, optional = true }
+golf_import_step = { workspace = true, optional = true }
 golf_manifold.workspace = true
 golf_mesh = { workspace = true, optional = true }
 golf_model = { workspace = true, optional = true }
 golf_nurbs.workspace = true
 golf_sketch.workspace = true
+golf_step = { workspace = true, optional = true }
 golf_view = { workspace = true, optional = true }
 nalgebra.workspace = true
 

@@ -25,6 +25,8 @@
 //!
 //! - `assembly` (default): assemblies of parts placed in frames.
 //! - `export_step` (default): writing bodies and assemblies as STEP files.
+//! - `import_step` (default): reading STEP files into bodies and assemblies,
+//!   healing them (with the Part 21 reader as [`step`] and healing as [`heal`]).
 //! - `mesh` (default): triangle meshes of bodies.
 //! - `model` (default): sketch-and-extrude style modelling operations.
 //! - `view`: a Bevy viewer for meshes. Pulls in Bevy, so off by default.

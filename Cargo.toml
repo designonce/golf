@@ -64,11 +64,13 @@ categories.workspace = true
 workspace = true
 
 [features]
-default = ["assembly", "export_step", "mesh", "model"]
+default = ["assembly", "export_step", "import_step", "mesh", "model"]
 # Assemblies of parts placed in frames.
 assembly = ["golf_internal/assembly"]
 # Writing bodies and assemblies as STEP files.
 export_step = ["golf_internal/export_step"]
+# Healing bodies from outside sources, and reading STEP files.
+import_step = ["golf_internal/import_step"]
 # Triangle meshes of bodies.
 mesh = ["golf_internal/mesh"]
 # Sketch-and-extrude style modelling operations.

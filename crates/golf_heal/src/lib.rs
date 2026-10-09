@@ -19,6 +19,7 @@
 mod error;
 mod heal;
 mod pcurve;
+pub mod prelude;
 mod seam;
 
 pub use error::HealIssue;

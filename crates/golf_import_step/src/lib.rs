@@ -15,6 +15,7 @@
 mod body;
 mod error;
 mod geometry;
+pub mod prelude;
 mod read;
 mod structure;
 mod style;

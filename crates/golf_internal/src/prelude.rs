@@ -15,6 +15,9 @@ pub use crate::frame::prelude::*;
 #[doc(hidden)]
 pub use crate::geom::prelude::*;
 #[doc(hidden)]
+#[cfg(feature = "import_step")]
+pub use crate::import_step::prelude::*;
+#[doc(hidden)]
 pub use crate::manifold::prelude::*;
 #[doc(hidden)]
 #[cfg(feature = "mesh")]
