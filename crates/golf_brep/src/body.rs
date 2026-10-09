@@ -2,6 +2,7 @@ use std::collections::HashMap;
 
 use golf_color::Color;
 use golf_geom::AnyCurve;
+use golf_geom::AnyCurve2;
 use golf_geom::AnySurface;
 use golf_manifold::Embedding;
 use golf_manifold::Mapping;
@@ -13,6 +14,7 @@ use super::Edge;
 use super::EdgeId;
 use super::Face;
 use super::FaceId;
+use super::FaceUv;
 use super::Loop;
 use super::Shell;
 use super::ShellId;
@@ -172,6 +174,18 @@ impl<S: Space<3>> Body<S> {
         }
         self.shells.push(Shell { faces });
         Ok(ShellId::new(self.shells.len() - 1))
+    }
+
+    /// Replaces (or removes) the pcurve of coedge `coedge` of loop `loop_index`
+    /// of `face`. Panics if there's no such coedge.
+    pub fn set_pcurve(
+        &mut self,
+        face: FaceId,
+        loop_index: usize,
+        coedge: usize,
+        pcurve: Option<AnyCurve2<FaceUv<S>>>,
+    ) {
+        self.faces[face.index()].loops[loop_index].coedges[coedge].pcurve = pcurve;
     }
 
     pub fn vertex(&self, id: VertexId) -> &Vertex<S> {
