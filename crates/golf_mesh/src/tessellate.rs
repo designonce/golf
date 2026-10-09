@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 
+use golf_manifold::Embedding;
 use golf_manifold::Mapping;
 use golf_manifold::Point;
 use golf_manifold::Surface;
@@ -55,11 +56,14 @@ pub fn mesh<M: MeshSource>(source: &M, tolerance: &Tolerance) -> Result<MeshOf<M
     let mut edge_samples: HashMap<M::Edge, Vec<EdgeSample>> = HashMap::new();
     for (id, edge) in source.edges() {
         let sides = sides.get(&id).map_or(&[][..], Vec::as_slice);
+        // A normal at (or a rounding error past) a pole means nothing.
         let normal = |side: &Side<'_, M>, t: f64| {
-            side.surface
-                .normal(side.pcurve.apply(Point::new([t].into())))
-                .coords
-                * side.sense
+            let uv = side.pcurve.apply(Point::new([t].into()));
+            let at_pole = side.surface.domain().is_singular(uv, 1e-9);
+            match at_pole {
+                true => Vector3::repeat(f64::NAN),
+                false => side.surface.normal(uv).coords * side.sense,
+            }
         };
         let flat_enough = |a: f64, b: f64| {
             sides.iter().all(|side| {
