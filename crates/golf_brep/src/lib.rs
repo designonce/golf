@@ -24,6 +24,7 @@ mod id;
 #[cfg(feature = "mesh")]
 mod mesh;
 mod primitives;
+mod transform;
 
 pub use body::Body;
 pub use entity::Coedge;

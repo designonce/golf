@@ -85,6 +85,7 @@ dependencies = [
  "golf_manifold",
  "golf_nurbs",
  "nalgebra",
+ "thiserror",
 ]
 
 [[package]]

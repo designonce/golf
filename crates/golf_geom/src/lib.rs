@@ -41,6 +41,7 @@ mod sphere;
 #[cfg(test)]
 mod testing;
 mod torus;
+mod transform;
 
 pub use circle::Circle;
 pub use cone::Cone;
@@ -58,3 +59,5 @@ pub use placement::Placement;
 pub use plane::Plane;
 pub use sphere::Sphere;
 pub use torus::Torus;
+pub use transform::Transform;
+pub use transform::TransformError;

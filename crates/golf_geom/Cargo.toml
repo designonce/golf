@@ -13,6 +13,7 @@ categories.workspace = true
 [dependencies]
 golf_manifold.workspace = true
 golf_nurbs.workspace = true
+thiserror.workspace = true
 nalgebra.workspace = true
 
 [dev-dependencies]
