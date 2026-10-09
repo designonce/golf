@@ -4,18 +4,22 @@
 //! ```text
 //! cargo run --release -p golf_import_step --example import_step -- part.step [more.step...]
 //! cargo run --release -p golf_import_step --example import_step -- --quiet corpus/*.step
+//! cargo run --release -p golf_import_step --example import_step -- --progress slow.step
 //! ```
 
 use std::error::Error;
 use std::time::Instant;
 
 use golf_import_step::read_step;
+use golf_manifold::Mapping;
+use golf_manifold::Point;
 use golf_mesh::Tolerance;
 use golf_mesh::mesh;
 
 fn main() -> Result<(), Box<dyn Error>> {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let quiet = args.iter().any(|a| a == "--quiet");
+    let progress = args.iter().any(|a| a == "--progress");
     for path in args.iter().filter(|a| !a.starts_with("--")) {
         let bytes = std::fs::read(path)?;
         let start = Instant::now();
@@ -35,8 +39,17 @@ fn main() -> Result<(), Box<dyn Error>> {
         let mut failures = Vec::new();
         for (name, body) in &posed {
             faces += body.faces().len();
-            // A thousandth of the body's size.
-            let points: Vec<_> = body.vertices().map(|(_, v)| v.point.coords).collect();
+            // A thousandth of the body's size, from points along its edges
+            // (a torus can have one vertex).
+            let points: Vec<_> = body
+                .edges()
+                .flat_map(|(_, e)| {
+                    (0..=8).map(move |i| {
+                        let t = e.range.0 + (e.range.1 - e.range.0) * i as f64 / 8.0;
+                        e.curve.apply(Point::new([t].into())).coords
+                    })
+                })
+                .collect();
             let lo = points
                 .iter()
                 .fold(nalgebra::Vector3::repeat(f64::INFINITY), |a, p| a.inf(p));
@@ -46,6 +59,12 @@ fn main() -> Result<(), Box<dyn Error>> {
                     a.sup(p)
                 });
             let size = (hi - lo).norm().max(1e-3);
+            if progress {
+                eprintln!(
+                    "meshing {name}: {} faces, size {size:.3}",
+                    body.faces().len()
+                );
+            }
             match mesh(body, &Tolerance::new(size * 1e-3, 0.5)) {
                 Ok(m) => {
                     meshed += 1;
