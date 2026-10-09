@@ -207,3 +207,31 @@ fn bodies_in_a_frame() {
             .is_watertight()
     );
 }
+
+#[test]
+fn solids_export_to_step() {
+    use golf_export_step::StepFile;
+    use golf_export_step::StepOptions;
+    let outer = Profile::rectangle(Vector2::new(1.0, 0.0), Vector2::new(3.0, 4.0)).unwrap();
+    let hole = Profile::circle(Vector2::new(2.0, 2.0), 0.5).unwrap();
+    let mut file = StepFile::new(StepOptions::default()).unwrap();
+    file.add_body("sphere", &primitives::sphere(&tilted(), 1.0).unwrap())
+        .unwrap();
+    file.add_body("torus", &primitives::torus(&tilted(), 3.0, 1.0).unwrap())
+        .unwrap();
+    file.add_body("cone", &primitives::cone(&tilted(), 1.0, 0.0, 2.0).unwrap())
+        .unwrap();
+    file.add_body(
+        "void",
+        &revolve(&tilted(), &Region::new(outer, vec![hole])).unwrap(),
+    )
+    .unwrap();
+    let text = file.finish();
+    let count = |entity: &str| text.matches(&format!("={entity}(")).count();
+    assert_eq!(count("MANIFOLD_SOLID_BREP"), 3);
+    assert_eq!(count("BREP_WITH_VOIDS"), 1);
+    assert_eq!(count("ORIENTED_CLOSED_SHELL"), 1);
+    assert_eq!(count("SPHERICAL_SURFACE"), 1);
+    assert_eq!(count("TOROIDAL_SURFACE"), 2);
+    assert_eq!(count("CONICAL_SURFACE"), 1);
+}

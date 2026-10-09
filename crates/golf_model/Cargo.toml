@@ -18,6 +18,7 @@ nalgebra.workspace = true
 thiserror.workspace = true
 
 [dev-dependencies]
+golf_export_step.workspace = true
 golf_frame.workspace = true
 golf_mesh.workspace = true
 
