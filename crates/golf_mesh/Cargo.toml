@@ -11,15 +11,13 @@ keywords.workspace = true
 categories.workspace = true
 
 [dependencies]
-golf_brep.workspace = true
-golf_geom.workspace = true
 golf_manifold.workspace = true
 nalgebra.workspace = true
 spade.workspace = true
 thiserror.workspace = true
 
 [dev-dependencies]
-golf_frame.workspace = true
+golf_geom.workspace = true
 
 [lints]
 workspace = true

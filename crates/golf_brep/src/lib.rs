@@ -19,6 +19,8 @@ mod body;
 mod entity;
 mod error;
 mod id;
+#[cfg(feature = "mesh")]
+mod mesh;
 mod primitives;
 
 pub use body::Body;

@@ -1,29 +1,28 @@
 use std::collections::HashMap;
 
-use golf_brep::FaceId;
 use golf_manifold::Point;
 use golf_manifold::Space;
 use golf_manifold::Vector;
 
-/// A triangle mesh in space `S`.
+/// A triangle mesh in space `S`, of a source whose faces are keyed by `F`.
 #[derive(Clone, Debug)]
-pub struct Mesh<S: Space<3>> {
+pub struct Mesh<S: Space<3>, F> {
     pub positions: Vec<Point<S, 3>>,
-    pub triangles: Vec<Triangle<S>>,
+    pub triangles: Vec<Triangle<S, F>>,
 }
 
 /// One facet: three indices into [`Mesh::positions`], anticlockwise seen from
 /// the side its face's normal points to.
 #[derive(Clone, Copy, Debug)]
-pub struct Triangle<S: Space<3>> {
+pub struct Triangle<S: Space<3>, F> {
     pub vertices: [u32; 3],
     /// The face it tessellates.
-    pub face: FaceId,
+    pub face: F,
     /// The face's unit normal at each corner.
     pub normals: [Vector<S, 3>; 3],
 }
 
-impl<S: Space<3>> Default for Mesh<S> {
+impl<S: Space<3>, F> Default for Mesh<S, F> {
     fn default() -> Self {
         Self {
             positions: Vec::new(),
@@ -32,7 +31,7 @@ impl<S: Space<3>> Default for Mesh<S> {
     }
 }
 
-impl<S: Space<3>> Mesh<S> {
+impl<S: Space<3>, F> Mesh<S, F> {
     /// The directed edges `[from, to]` not matched by exactly one triangle using
     /// them `[to, from]`: the mesh's holes and non-manifold seams.
     pub fn open_edges(&self) -> Vec<[u32; 2]> {

@@ -10,8 +10,14 @@ repository.workspace = true
 keywords.workspace = true
 categories.workspace = true
 
+[features]
+default = ["mesh"]
+# Implements golf_mesh::MeshSource for Body.
+mesh = ["dep:golf_mesh"]
+
 [dependencies]
 golf_geom.workspace = true
+golf_mesh = { workspace = true, optional = true }
 golf_manifold.workspace = true
 nalgebra.workspace = true
 thiserror.workspace = true

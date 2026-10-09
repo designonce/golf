@@ -1,8 +1,9 @@
 //! Triangle meshes of boundary-represented bodies.
 //!
-//! [`mesh_body`] tessellates every face of a [`Body`](golf_brep::Body) to a
-//! [`Tolerance`], producing one [`Mesh`] in which faces meeting along an edge
-//! share that edge's vertices, so a closed body gives a watertight mesh.
+//! [`mesh`] tessellates every face of a [`MeshSource`] (any boundary
+//! representation that provides vertices, edges and faces) to a [`Tolerance`],
+//! producing one [`Mesh`] in which faces meeting along an edge share that
+//! edge's vertices, so a closed source gives a watertight mesh.
 //!
 //! The pipeline:
 //!
@@ -21,16 +22,23 @@
 //! 5. Vertices are raised to the surface; triangles collapsed at poles are
 //!    dropped, and winding and normals follow the face's orientation.
 
-mod body;
 mod boundary;
 mod error;
 mod mesh;
 mod sample;
+mod source;
+mod tessellate;
 mod tolerance;
 mod triangulate;
 
-pub use body::mesh_body;
 pub use error::MeshError;
 pub use mesh::Mesh;
 pub use mesh::Triangle;
+pub use source::CoedgeData;
+pub use source::EdgeData;
+pub use source::FaceData;
+pub use source::MeshErrorOf;
+pub use source::MeshOf;
+pub use source::MeshSource;
+pub use tessellate::mesh;
 pub use tolerance::Tolerance;

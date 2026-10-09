@@ -4,13 +4,10 @@ use std::collections::HashMap;
 use std::collections::HashSet;
 use std::collections::VecDeque;
 
-use golf_brep::Face;
-use golf_brep::FaceId;
 use golf_manifold::Domain;
 use golf_manifold::Embedding;
 use golf_manifold::Mapping;
 use golf_manifold::Point;
-use golf_manifold::Space;
 use golf_manifold::Surface;
 use golf_manifold::Vector;
 use nalgebra::Vector2;
@@ -27,6 +24,8 @@ use crate::error::MeshError;
 use crate::mesh::Mesh;
 use crate::mesh::Triangle;
 use crate::sample::distance_to_segment;
+use crate::source::MeshErrorOf;
+use crate::source::MeshSource;
 use crate::tolerance::Tolerance;
 
 type Cdt = ConstrainedDelaunayTriangulation<Point2<f64>>;
@@ -40,14 +39,14 @@ const MAX_SEEDS: usize = 100_000;
 
 /// Triangulates `face` inside `loops` and appends its triangles (and any new
 /// interior vertices) to `mesh`.
-pub(crate) fn triangulate<S: Space<3>>(
-    face_id: FaceId,
-    face: &Face<S>,
+pub(crate) fn triangulate<M: MeshSource>(
+    face_id: M::Face,
+    surface: &M::Surface,
+    same_sense: bool,
     loops: &[Vec<BoundaryPoint>],
-    mesh: &mut Mesh<S>,
+    mesh: &mut Mesh<M::Space, M::Face>,
     tolerance: &Tolerance,
-) -> Result<(), MeshError> {
-    let surface = &face.surface;
+) -> Result<(), MeshErrorOf<M>> {
     let fail = |error: spade::InsertionError| MeshError::Triangulation {
         face: face_id,
         message: error.to_string(),
@@ -55,7 +54,7 @@ pub(crate) fn triangulate<S: Space<3>>(
 
     // Delaunay triangles are only well shaped if parameter distances are
     // roughly surface distances, so scale each axis by its average speed.
-    let scale = axis_scale(face, loops);
+    let scale = axis_scale::<M>(surface, loops);
     let to_cdt = |uv: Vector2<f64>| Point2::new(uv.x * scale.x, uv.y * scale.y);
     let to_uv = |p: Point2<f64>| Vector2::new(p.x / scale.x, p.y / scale.y);
 
@@ -69,7 +68,7 @@ pub(crate) fn triangulate<S: Space<3>>(
                 boundary_vertex.entry(handle).or_insert(p.vertex);
                 Ok(handle)
             })
-            .collect::<Result<Vec<_>, MeshError>>()?;
+            .collect::<Result<Vec<_>, MeshErrorOf<M>>>()?;
         for (i, &a) in handles.iter().enumerate() {
             let b = handles[(i + 1) % handles.len()];
             if a == b
@@ -85,7 +84,7 @@ pub(crate) fn triangulate<S: Space<3>>(
         }
     }
 
-    seed_interior(&mut cdt, face, loops, scale, tolerance).map_err(fail)?;
+    seed_interior::<M>(&mut cdt, surface, loops, scale, tolerance).map_err(fail)?;
 
     let position = |cdt: &Cdt, handle: FixedVertexHandle| -> Vector3<f64> {
         match boundary_vertex.get(&handle) {
@@ -114,7 +113,7 @@ pub(crate) fn triangulate<S: Space<3>>(
                 continue;
             };
             let corners = handles.map(|h| position(&cdt, h));
-            if !meets_tolerance(face, &triangle, uvs, corners, tolerance) {
+            if !meets_tolerance::<M>(surface, &triangle, uvs, corners, tolerance) {
                 splits.push(to_cdt(split_point(&triangle, handles, uvs, corners)));
             }
         }
@@ -126,7 +125,7 @@ pub(crate) fn triangulate<S: Space<3>>(
         }
     }
 
-    let sense = if face.same_sense { 1.0 } else { -1.0 };
+    let sense = if same_sense { 1.0 } else { -1.0 };
     let mut interior_vertex: HashMap<FixedVertexHandle, u32> = HashMap::new();
     let inside = inside_faces(&cdt);
     for triangle in cdt.inner_faces() {
@@ -155,7 +154,7 @@ pub(crate) fn triangulate<S: Space<3>>(
             continue;
         }
         // Anticlockwise in uv is anticlockwise about the surface normal.
-        if !face.same_sense {
+        if !same_sense {
             corners.swap(1, 2);
         }
         let [p0, p1, p2] = corners.map(|(i, _)| mesh.positions[i as usize].coords);
@@ -240,14 +239,13 @@ fn lift_singular(uvs: [Vector2<f64>; 3], domain: &Domain<2>) -> Option<[Vector2<
 /// its plane, at the middle of each interior edge within the chord of that
 /// edge, and its normal within the angle of the surface's at each corner.
 /// Boundary edges are the edge sampler's business.
-fn meets_tolerance<S: Space<3>>(
-    face: &Face<S>,
+fn meets_tolerance<M: MeshSource>(
+    surface: &M::Surface,
     triangle: &spade::handles::FaceHandle<'_, InnerTag, Point2<f64>, (), spade::CdtEdge<()>, ()>,
     uvs: [Vector2<f64>; 3],
     corners: [Vector3<f64>; 3],
     tolerance: &Tolerance,
 ) -> bool {
-    let surface = &face.surface;
     let raise = |uv: Vector2<f64>| surface.apply(Point::new(uv)).coords;
     let normal = (corners[1] - corners[0]).cross(&(corners[2] - corners[0]));
     if normal.norm() == 0.0 {
@@ -289,11 +287,11 @@ fn meets_tolerance<S: Space<3>>(
 
 /// Per-axis scale making parameter distances roughly surface distances: the
 /// mean length of each partial derivative over the boundary.
-fn axis_scale<S: Space<3>>(face: &Face<S>, loops: &[Vec<BoundaryPoint>]) -> Vector2<f64> {
+fn axis_scale<M: MeshSource>(surface: &M::Surface, loops: &[Vec<BoundaryPoint>]) -> Vector2<f64> {
     let mut sum = Vector2::<f64>::zeros();
     let mut count = Vector2::<f64>::zeros();
     for p in loops.iter().flatten() {
-        let j = face.surface.jacobian(Point::new(p.uv));
+        let j = surface.jacobian(Point::new(p.uv));
         for k in 0..2 {
             let speed = j.column(k).norm();
             if speed.is_finite() && speed > 0.0 {
@@ -348,14 +346,13 @@ fn inside_faces(cdt: &Cdt) -> HashSet<FixedFaceHandle<InnerTag>> {
 /// so refinement starts close to the tolerance instead of working inwards from
 /// the boundary. Points outside the loops, or crowding the boundary, are left
 /// out.
-fn seed_interior<S: Space<3>>(
+fn seed_interior<M: MeshSource>(
     cdt: &mut Cdt,
-    face: &Face<S>,
+    surface: &M::Surface,
     loops: &[Vec<BoundaryPoint>],
     scale: Vector2<f64>,
     tolerance: &Tolerance,
 ) -> Result<(), spade::InsertionError> {
-    let surface = &face.surface;
     let uvs: Vec<Vector2<f64>> = loops.iter().flatten().map(|p| p.uv).collect();
     let lo = uvs
         .iter()

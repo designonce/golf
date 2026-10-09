@@ -1,74 +1,70 @@
-use std::collections::HashMap;
+//! Meshing bodies with `golf_mesh`.
 
-use golf_brep::Body;
-use golf_brep::EdgeId;
-use golf_brep::VertexId;
-use golf_manifold::Mapping;
+use golf_geom::AnyCurve;
+use golf_geom::AnyCurve2;
+use golf_geom::AnySurface;
 use golf_manifold::Point;
 use golf_manifold::Space;
-use nalgebra::Vector3;
+use golf_mesh::CoedgeData;
+use golf_mesh::EdgeData;
+use golf_mesh::FaceData;
+use golf_mesh::MeshSource;
 
-use crate::boundary::EdgeSample;
-use crate::boundary::face_loops;
-use crate::error::MeshError;
-use crate::mesh::Mesh;
-use crate::sample::sample;
-use crate::tolerance::Tolerance;
-use crate::triangulate::triangulate;
+use crate::Body;
+use crate::EdgeId;
+use crate::FaceId;
+use crate::FaceUv;
+use crate::VertexId;
 
-/// Tessellates every face of `body` to `tolerance`.
-///
-/// Edges are sampled once and shared by the faces either side, so a closed
-/// body gives a watertight mesh.
-pub fn mesh_body<S: Space<3>>(body: &Body<S>, tolerance: &Tolerance) -> Result<Mesh<S>, MeshError> {
-    let mut mesh = Mesh::default();
-    let vertex_index: HashMap<VertexId, u32> = body
-        .vertices()
-        .map(|(id, vertex)| {
-            mesh.positions.push(vertex.point);
-            (id, (mesh.positions.len() - 1) as u32)
+impl<S: Space<3>> MeshSource for Body<S> {
+    type Space = S;
+    type Curve = AnyCurve<S>;
+    type Surface = AnySurface<S>;
+    type Pcurve = AnyCurve2<FaceUv<S>>;
+    type Vertex = VertexId;
+    type Edge = EdgeId;
+    type Face = FaceId;
+
+    fn vertices(&self) -> impl Iterator<Item = (VertexId, Point<S, 3>)> + '_ {
+        Body::vertices(self).map(|(id, vertex)| (id, vertex.point))
+    }
+
+    fn edges(&self) -> impl Iterator<Item = (EdgeId, EdgeData<'_, Self>)> + '_ {
+        Body::edges(self).map(|(id, edge)| {
+            let data = EdgeData {
+                curve: &edge.curve,
+                range: edge.range,
+                start: edge.start,
+                end: edge.end,
+            };
+            (id, data)
         })
-        .collect();
-
-    let mut edge_samples: HashMap<EdgeId, Vec<EdgeSample>> = HashMap::new();
-    for (id, edge) in body.edges() {
-        let at = |t: f64| Point::new([t].into());
-        let point = |t: f64| edge.curve.apply(at(t)).coords;
-        let tangent = |t: f64| -> Vector3<f64> { edge.curve.jacobian(at(t)).column(0).into() };
-        // A closed edge needs a few segments to begin with, or its two ends,
-        // being one point, would look like a settled chord.
-        let initial = if edge.start == edge.end { 3 } else { 1 };
-        // Half the chord, so the faces either side can meet the tolerance
-        // along their boundary: an edge's sag shows up in their triangles too.
-        let edge_tolerance = Tolerance {
-            chord: tolerance.chord / 2.0,
-            ..*tolerance
-        };
-        let ts = sample(point, tangent, edge.range, initial, &edge_tolerance);
-        let last = ts.len() - 1;
-        let samples = ts
-            .iter()
-            .enumerate()
-            .map(|(i, &t)| {
-                let vertex = match i {
-                    0 => vertex_index[&edge.start],
-                    i if i == last => vertex_index[&edge.end],
-                    _ => {
-                        mesh.positions.push(edge.curve.apply(at(t)));
-                        (mesh.positions.len() - 1) as u32
-                    }
-                };
-                EdgeSample { t, vertex }
-            })
-            .collect();
-        edge_samples.insert(id, samples);
     }
 
-    for (face_id, face) in body.faces() {
-        let loops = face_loops(face_id, face, &edge_samples, &mut mesh, tolerance)?;
-        triangulate(face_id, face, &loops, &mut mesh, tolerance)?;
+    fn faces(&self) -> impl Iterator<Item = (FaceId, FaceData<'_, Self>)> + '_ {
+        Body::faces(self).map(|(id, face)| {
+            let loops = face
+                .loops
+                .iter()
+                .map(|l| {
+                    l.coedges
+                        .iter()
+                        .map(|coedge| CoedgeData {
+                            edge: coedge.edge,
+                            reversed: coedge.reversed,
+                            pcurve: coedge.pcurve.as_ref(),
+                        })
+                        .collect()
+                })
+                .collect();
+            let data = FaceData {
+                surface: &face.surface,
+                same_sense: face.same_sense,
+                loops,
+            };
+            (id, data)
+        })
     }
-    Ok(mesh)
 }
 
 #[cfg(test)]
@@ -76,22 +72,28 @@ mod tests {
     use core::f64::consts::FRAC_PI_2;
     use core::f64::consts::PI;
 
-    use golf_brep::Coedge;
-    use golf_brep::Loop;
-    use golf_brep::cuboid;
-    use golf_brep::cylinder;
     use golf_geom::Circle;
     use golf_geom::Line;
     use golf_geom::Placement;
     use golf_geom::Plane;
     use golf_geom::Sphere;
     use golf_geom::Torus;
+    use golf_manifold::Point;
     use golf_manifold::Vector;
     use golf_manifold::World;
+    use golf_mesh::Mesh;
+    use golf_mesh::MeshError;
+    use golf_mesh::Tolerance;
+    use golf_mesh::mesh;
     use nalgebra::Vector2;
+    use nalgebra::Vector3;
 
-    use super::*;
-    use crate::error::MeshError;
+    use crate::Body;
+    use crate::Coedge;
+    use crate::FaceId;
+    use crate::Loop;
+    use crate::cuboid;
+    use crate::cylinder;
 
     fn tolerance() -> Tolerance {
         Tolerance::new(1e-3, 0.3)
@@ -106,7 +108,7 @@ mod tests {
     }
 
     /// Watertight, outward-facing, and enclosing `volume` to within `relative`.
-    fn assert_solid(mesh: &Mesh<World>, volume: f64, relative: f64) {
+    fn assert_solid(mesh: &Mesh<World, FaceId>, volume: f64, relative: f64) {
         let open = mesh.open_edges();
         assert!(
             open.is_empty(),
@@ -133,7 +135,7 @@ mod tests {
 
     #[test]
     fn cuboid_meshes_exactly() {
-        let mesh = mesh_body(&cuboid(tilted(), Vector3::new(1.0, 2.0, 3.0)), &tolerance()).unwrap();
+        let mesh = mesh(&cuboid(tilted(), Vector3::new(1.0, 2.0, 3.0)), &tolerance()).unwrap();
         assert_solid(&mesh, 6.0, 1e-12);
         assert!((mesh.area() - 22.0).abs() < 1e-12);
         assert_eq!(mesh.triangles.len(), 12);
@@ -142,7 +144,7 @@ mod tests {
     #[test]
     fn cylinder_meshes_watertight() {
         let (radius, height) = (1.5, 4.0);
-        let mesh = mesh_body(&cylinder(tilted(), radius, height), &tolerance()).unwrap();
+        let mesh = mesh(&cylinder(tilted(), radius, height), &tolerance()).unwrap();
         assert_solid(&mesh, PI * radius * radius * height, 2e-3);
         // Every vertex is within the chord tolerance of the true cylinder.
         for p in &mesh.positions {
@@ -158,7 +160,7 @@ mod tests {
     #[test]
     fn max_length_limits_triangle_edges() {
         let tolerance = tolerance().with_max_length(0.4);
-        let mesh = mesh_body(&cuboid(tilted(), Vector3::new(1.0, 2.0, 3.0)), &tolerance).unwrap();
+        let mesh = mesh(&cuboid(tilted(), Vector3::new(1.0, 2.0, 3.0)), &tolerance).unwrap();
         assert_solid(&mesh, 6.0, 1e-12);
         for t in &mesh.triangles {
             let [a, b, c] = t.vertices.map(|i| mesh.positions[i as usize].coords);
@@ -179,7 +181,7 @@ mod tests {
             )
             .unwrap();
         body.add_shell(vec![face]).unwrap();
-        let mesh = mesh_body(&body, &tolerance()).unwrap();
+        let mesh = mesh(&body, &tolerance()).unwrap();
         assert_solid(&mesh, 4.0 / 3.0 * PI * 8.0, 3e-3);
     }
 
@@ -190,7 +192,7 @@ mod tests {
             .add_face(Torus::new(tilted(), 3.0, 1.0), true, vec![])
             .unwrap();
         body.add_shell(vec![face]).unwrap();
-        let mesh = mesh_body(&body, &tolerance()).unwrap();
+        let mesh = mesh(&body, &tolerance()).unwrap();
         assert_solid(&mesh, 2.0 * PI * PI * 3.0, 3e-3);
     }
 
@@ -249,7 +251,7 @@ mod tests {
         body.add_shell(vec![dome, disc]).unwrap();
         assert_eq!(body.validate(1e-9), Ok(()));
 
-        let mesh = mesh_body(&body, &tolerance()).unwrap();
+        let mesh = mesh(&body, &tolerance()).unwrap();
         assert_solid(&mesh, 2.0 / 3.0 * PI * radius.powi(3), 3e-3);
     }
 
@@ -259,7 +261,7 @@ mod tests {
         let face = body.add_face(Plane::new(tilted()), true, vec![]).unwrap();
         body.add_shell(vec![face]).unwrap();
         assert!(matches!(
-            mesh_body(&body, &tolerance()),
+            mesh(&body, &tolerance()),
             Err(MeshError::UnboundedFace { .. })
         ));
     }
@@ -287,7 +289,7 @@ mod tests {
         )
         .unwrap();
         assert!(matches!(
-            mesh_body(&body, &tolerance()),
+            mesh(&body, &tolerance()),
             Err(MeshError::LoopWrapsSurface { .. })
         ));
     }
@@ -302,7 +304,7 @@ mod tests {
             Placement::<Frame>::at(frame.point(Vector3::zeros())),
             Vector3::new(1.0, 1.0, 1.0),
         );
-        let mesh = mesh_body(&body, &tolerance()).unwrap();
+        let mesh = mesh(&body, &tolerance()).unwrap();
         assert!(mesh.is_watertight());
         assert!(mesh.positions.iter().all(|p| p.tag() == frame));
         assert!(

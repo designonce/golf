@@ -52,6 +52,7 @@ dependencies = [
  "golf_frame",
  "golf_geom",
  "golf_manifold",
+ "golf_mesh",
  "nalgebra",
  "thiserror",
 ]
@@ -86,8 +87,6 @@ dependencies = [
 name = "golf_mesh"
 version = "0.1.0"
 dependencies = [
- "golf_brep",
- "golf_frame",
  "golf_geom",
  "golf_manifold",
  "nalgebra",

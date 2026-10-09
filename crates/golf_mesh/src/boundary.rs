@@ -2,21 +2,19 @@
 
 use std::collections::HashMap;
 
-use golf_brep::EdgeId;
-use golf_brep::Face;
-use golf_brep::FaceId;
-use golf_geom::AnySurface;
 use golf_manifold::Domain;
 use golf_manifold::Embedding;
 use golf_manifold::Mapping;
 use golf_manifold::Point;
-use golf_manifold::Space;
 use nalgebra::Vector2;
 use nalgebra::Vector3;
 
 use crate::error::MeshError;
 use crate::mesh::Mesh;
 use crate::sample::sample;
+use crate::source::FaceData;
+use crate::source::MeshErrorOf;
+use crate::source::MeshSource;
 use crate::tolerance::Tolerance;
 
 /// A boundary point: where it is in the face's parameter space, and which mesh
@@ -36,21 +34,22 @@ pub(crate) struct EdgeSample {
 
 /// The face's loops as closed polygons in parameter space (the last point
 /// joins the first), each point tied to a mesh vertex.
-pub(crate) fn face_loops<S: Space<3>>(
-    face_id: FaceId,
-    face: &Face<S>,
-    edge_samples: &HashMap<EdgeId, Vec<EdgeSample>>,
-    mesh: &mut Mesh<S>,
+pub(crate) fn face_loops<M: MeshSource>(
+    face_id: M::Face,
+    face: &FaceData<'_, M>,
+    edge_samples: &HashMap<M::Edge, Vec<EdgeSample>>,
+    mesh: &mut Mesh<M::Space, M::Face>,
     tolerance: &Tolerance,
-) -> Result<Vec<Vec<BoundaryPoint>>, MeshError> {
+) -> Result<Vec<Vec<BoundaryPoint>>, MeshErrorOf<M>> {
     let domain = face.surface.domain();
     if face.loops.is_empty() {
-        return domain_rectangle(face_id, &face.surface, &domain, mesh, tolerance).map(|l| vec![l]);
+        return domain_rectangle::<M>(face_id, face.surface, &domain, mesh, tolerance)
+            .map(|l| vec![l]);
     }
     let mut loops = Vec::with_capacity(face.loops.len());
     for (loop_index, l) in face.loops.iter().enumerate() {
         let mut points: Vec<BoundaryPoint> = Vec::new();
-        for coedge in &l.coedges {
+        for coedge in l {
             let samples = &edge_samples[&coedge.edge];
             let ordered: Vec<EdgeSample> = match coedge.reversed {
                 true => samples.iter().rev().copied().collect(),
@@ -153,13 +152,13 @@ fn bridge_singular_bounds(points: &[BoundaryPoint], domain: &Domain<2>) -> Vec<B
 
 /// The boundary of a face with no loops: its whole domain, with the sides a
 /// periodic axis joins sharing vertices, and each singular side one vertex.
-fn domain_rectangle<S: Space<3>>(
-    face_id: FaceId,
-    surface: &AnySurface<S>,
+fn domain_rectangle<M: MeshSource>(
+    face_id: M::Face,
+    surface: &M::Surface,
     domain: &Domain<2>,
-    mesh: &mut Mesh<S>,
+    mesh: &mut Mesh<M::Space, M::Face>,
     tolerance: &Tolerance,
-) -> Result<Vec<BoundaryPoint>, MeshError> {
+) -> Result<Vec<BoundaryPoint>, MeshErrorOf<M>> {
     let [u_axis, v_axis] = domain.axes;
     let bounds = [u_axis.min, u_axis.max, v_axis.min, v_axis.max];
     if bounds.iter().any(|b| !b.is_finite()) {
