@@ -8,6 +8,7 @@ use nalgebra::Vector3;
 
 use crate::boundary::EdgeSample;
 use crate::boundary::face_loops;
+use crate::error::MeshError;
 use crate::mesh::Mesh;
 use crate::sample::sample_with;
 use crate::source::MeshErrorOf;
@@ -107,14 +108,34 @@ pub fn mesh<M: MeshSource>(source: &M, tolerance: &Tolerance) -> Result<MeshOf<M
 
     for (face_id, face) in faces {
         let loops = face_loops::<M>(face_id, &face, &edge_samples, &mut mesh, tolerance)?;
-        triangulate::<M>(
-            face_id,
-            face.surface,
-            face.same_sense,
-            &loops,
-            &mut mesh,
-            tolerance,
-        )?;
+        // spade can panic on nearly degenerate input; that face then fails
+        // alone, as a triangulation error, rather than taking the caller down.
+        // The mesh is only appended to, so a failed face leaves no partial
+        // state that matters: the error is returned.
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            triangulate::<M>(
+                face_id,
+                face.surface,
+                face.same_sense,
+                &loops,
+                &mut mesh,
+                tolerance,
+            )
+        }));
+        match result {
+            Ok(done) => done?,
+            Err(panic) => {
+                let message = panic
+                    .downcast_ref::<&str>()
+                    .map(|s| s.to_string())
+                    .or_else(|| panic.downcast_ref::<String>().cloned())
+                    .unwrap_or_else(|| "the triangulator panicked".to_string());
+                return Err(MeshError::Triangulation {
+                    face: face_id,
+                    message,
+                });
+            }
+        }
     }
     Ok(mesh)
 }
