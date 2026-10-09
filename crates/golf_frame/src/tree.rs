@@ -33,6 +33,7 @@ impl Space<3> for Frame {
     type Tag = FrameId;
 }
 
+#[derive(Clone, Debug)]
 struct Node {
     parent: Option<FrameId>,
     /// Maps coordinates in this frame to coordinates in `parent`.
@@ -41,6 +42,7 @@ struct Node {
 }
 
 /// A tree of frames whose edges are rigid transforms.
+#[derive(Clone, Debug)]
 pub struct FrameTree {
     nodes: Vec<Node>,
 }
@@ -76,6 +78,32 @@ impl FrameTree {
             depth,
         });
         id
+    }
+
+    /// The frame `frame` is placed in, or `None` for the root.
+    pub fn parent(&self, frame: FrameId) -> Option<FrameId> {
+        self.node(frame).parent
+    }
+
+    /// The transform taking `frame`'s coordinates to its parent's (identity
+    /// for the root).
+    pub fn placement(&self, frame: FrameId) -> Isometry3<f64> {
+        self.node(frame).to_parent
+    }
+
+    /// How many frames there are, the root included.
+    pub fn len(&self) -> usize {
+        self.nodes.len()
+    }
+
+    /// Always false: there is always a root.
+    pub fn is_empty(&self) -> bool {
+        false
+    }
+
+    /// Every frame, the root first, each after its parent.
+    pub fn frames(&self) -> impl ExactSizeIterator<Item = FrameId> {
+        (0..self.nodes.len() as u32).map(FrameId)
     }
 
     /// Moves `frame` (and so everything below it) relative to its parent.
