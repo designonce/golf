@@ -1,0 +1,25 @@
+[package]
+name = "golf_model"
+description = "Building bodies with CAD-style operations: sketch, extrude, revolve"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[dependencies]
+golf_brep.workspace = true
+golf_geom.workspace = true
+golf_manifold.workspace = true
+nalgebra.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+golf_frame.workspace = true
+golf_mesh.workspace = true
+
+[lints]
+workspace = true

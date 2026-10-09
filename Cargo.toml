@@ -20,6 +20,7 @@ golf_frame = { path = "crates/golf_frame" }
 golf_geom = { path = "crates/golf_geom" }
 golf_manifold = { path = "crates/golf_manifold" }
 golf_mesh = { path = "crates/golf_mesh" }
+golf_model = { path = "crates/golf_model" }
 golf_nurbs = { path = "crates/golf_nurbs" }
 nalgebra = { version = "0.33.3" }
 spade = { version = "2.13.1" }
