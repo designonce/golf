@@ -5,6 +5,7 @@ use core::fmt::Write as _;
 
 use golf_geom::Placement;
 use golf_manifold::Space;
+use nalgebra::SVector;
 use nalgebra::Vector3;
 
 use crate::error::StepError;
@@ -33,11 +34,22 @@ impl Writer {
     }
 
     pub fn point(&mut self, p: Vector3<f64>) -> Result<Ref, StepError> {
+        self.point_in(p)
+    }
+
+    /// A `CARTESIAN_POINT` with any number of coordinates: 2 for a point in a
+    /// surface's parameters.
+    pub fn point_in<const N: usize>(&mut self, p: SVector<f64, N>) -> Result<Ref, StepError> {
         Ok(self.add(format!("CARTESIAN_POINT('',{})", reals(p.iter().copied())?)))
     }
 
     /// A `DIRECTION`, normalised.
     pub fn direction(&mut self, d: Vector3<f64>) -> Result<Ref, StepError> {
+        self.direction_in(d)
+    }
+
+    /// A `DIRECTION` with any number of components, normalised.
+    pub fn direction_in<const N: usize>(&mut self, d: SVector<f64, N>) -> Result<Ref, StepError> {
         let unit = d
             .try_normalize(f64::MIN_POSITIVE)
             .ok_or(StepError::ZeroDirection)?;

@@ -6,7 +6,9 @@ use golf_color::Color;
 
 use crate::error::StepError;
 use crate::geometry::StepCurve;
+use crate::geometry::StepCurve2;
 use crate::geometry::StepSurface;
+use crate::source::StepFace;
 use crate::source::StepSource;
 use crate::writer::Ref;
 use crate::writer::Writer;
@@ -289,9 +291,34 @@ struct Shape {
     face_colors: Vec<(Color, Ref)>,
 }
 
+/// A use of an edge: the face, and its pcurve there.
+type Use<'a, M> = (
+    <M as StepSource>::Face,
+    Option<&'a <M as StepSource>::Pcurve>,
+);
+
 fn write_body<M: StepSource>(w: &mut Writer, name: &str, body: &M) -> Result<Shape, StepError> {
     let points: HashMap<M::Vertex, _> = body.vertices().collect();
     let mut vertices: HashMap<M::Vertex, Ref> = HashMap::new();
+    // Surfaces first, so edges can name the surfaces their pcurves are on.
+    // In the body's order, so a file comes out the same each time.
+    let face_list: Vec<(M::Face, _)> = body.faces().collect();
+    let mut surfaces: HashMap<M::Face, Ref> = HashMap::new();
+    for (id, face) in &face_list {
+        surfaces.insert(*id, face.surface.write(w)?);
+    }
+    // Each edge's uses: the face, and its pcurve there.
+    let mut uses_of: HashMap<M::Edge, Vec<Use<'_, M>>> = HashMap::new();
+    for (id, face) in &face_list {
+        let id = *id;
+        for coedge in face.loops.iter().flatten() {
+            uses_of
+                .entry(coedge.edge)
+                .or_default()
+                .push((id, coedge.pcurve));
+        }
+    }
+    let mut parameter_context = None;
     let mut edges: HashMap<M::Edge, Ref> = HashMap::new();
     for (id, edge) in body.edges() {
         let mut vertex = |v: M::Vertex, w: &mut Writer| -> Result<Ref, StepError> {
@@ -304,7 +331,28 @@ fn write_body<M: StepSource>(w: &mut Writer, name: &str, body: &M) -> Result<Sha
             Ok(r)
         };
         let (start, end) = (vertex(edge.start, w)?, vertex(edge.end, w)?);
-        let curve = edge.curve.write(w)?;
+        let mut curve = edge.curve.write(w)?;
+        // With a pcurve for every use: a surface curve (a seam, if both uses
+        // are one face's).
+        let uses = uses_of.get(&id).map_or(&[][..], Vec::as_slice);
+        if !uses.is_empty() && uses.iter().all(|(_, p)| p.is_some()) {
+            let context = *parameter_context.get_or_insert_with(|| {
+                w.add("(GEOMETRIC_REPRESENTATION_CONTEXT(2)PARAMETRIC_REPRESENTATION_CONTEXT()REPRESENTATION_CONTEXT('2D SPACE',''))")
+            });
+            let mut pcurves = Vec::with_capacity(uses.len());
+            for (face, pcurve) in uses {
+                let curve_2d = pcurve.expect("checked").write_2d(w)?;
+                let definition = w.add(format!(
+                    "DEFINITIONAL_REPRESENTATION('',({curve_2d}),{context})"
+                ));
+                pcurves.push(w.add(format!("PCURVE('',{},{definition})", surfaces[face])));
+            }
+            let seam = uses.len() == 2 && uses[0].0 == uses[1].0;
+            curve = w.add(match seam {
+                true => format!("SEAM_CURVE('',{curve},{},.PCURVE_S1.)", refs(pcurves)),
+                false => format!("SURFACE_CURVE('',{curve},{},.CURVE_3D.)", refs(pcurves)),
+            });
+        }
         edges.insert(
             id,
             w.add(format!("EDGE_CURVE('',{start},{end},{curve},.T.)")),
@@ -314,7 +362,8 @@ fn write_body<M: StepSource>(w: &mut Writer, name: &str, body: &M) -> Result<Sha
     // Faces are written per shell: a void's faces point into the void, but a
     // STEP void is a closed shell pointing out of it, used reversed, so they're
     // written flipped.
-    let faces: HashMap<M::Face, _> = body.faces().collect();
+    let faces: HashMap<M::Face, &StepFace<'_, M>> =
+        face_list.iter().map(|(id, f)| (*id, f)).collect();
     let shells: Vec<Vec<M::Face>> = body.shells().collect();
     if shells.iter().all(Vec::is_empty) {
         return Err(StepError::EmptyBody(name.to_string()));
@@ -333,17 +382,17 @@ fn write_body<M: StepSource>(w: &mut Writer, name: &str, body: &M) -> Result<Sha
                     face: format!("{face_id:?}"),
                 });
             }
-            let surface = face.surface.write(w)?;
+            let surface = surfaces[face_id];
             let mut bounds = Vec::new();
             for l in &face.loops {
                 let oriented: Vec<Ref> = l
                     .iter()
-                    .map(|&(edge, reversed)| {
-                        *uses.entry(edge).or_default() += 1;
+                    .map(|coedge| {
+                        *uses.entry(coedge.edge).or_default() += 1;
                         w.add(format!(
                             "ORIENTED_EDGE('',*,*,{},{})",
-                            edges[&edge],
-                            logical(!reversed)
+                            edges[&coedge.edge],
+                            logical(!coedge.reversed)
                         ))
                     })
                     .collect();

@@ -36,7 +36,7 @@ fn tilted() -> Placement<World> {
 
 fn volume(body: &Body<World>) -> f64 {
     let m = mesh(body, &Tolerance::new(1e-3, 0.3)).unwrap();
-    assert!(m.is_watertight());
+    assert!(m.is_watertight(), "{} open edges", m.open_edges().len());
     m.signed_volume()
 }
 
@@ -83,8 +83,18 @@ fn bodies() -> Vec<(&'static str, Body<World>)> {
 fn bodies_read_back_with_their_shape() {
     let bodies = bodies();
     let refs: Vec<(&str, &Body<World>)> = bodies.iter().map(|(n, b)| (*n, b)).collect();
-    let import = read_step(write_bodies(&refs).as_bytes()).unwrap();
+    let text = write_bodies(&refs);
+    assert!(text.contains("SEAM_CURVE") && text.contains("PCURVE"));
+    let import = read_step(text.as_bytes()).unwrap();
     assert!(import.warnings.is_empty(), "{:?}", import.warnings);
+    // The file's pcurves are used; only coedges golf left without one (the
+    // primitives' caps) are computed.
+    assert!(
+        import.heal.kept + import.heal.moved > 4 * import.heal.computed,
+        "{:?}",
+        import.heal
+    );
+    assert_eq!(import.heal.seams, 0);
     let read: Vec<_> = import.assembly.parts().collect();
     assert_eq!(read.len(), bodies.len());
     for ((name, original), (_, part)) in bodies.iter().zip(read) {

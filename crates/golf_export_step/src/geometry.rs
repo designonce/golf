@@ -1,6 +1,7 @@
 //! Curves and surfaces as STEP geometry entities.
 
 use golf_geom::AnyCurve;
+use golf_geom::AnyCurve2;
 use golf_geom::AnySurface;
 use golf_geom::Circle;
 use golf_geom::Cone;
@@ -68,16 +69,60 @@ impl<S: Space<3>> StepCurve for Ellipse<S> {
 
 impl<S: Space<3>> StepCurve for NurbsCurve<S, 3> {
     fn write(&self, w: &mut Writer) -> Result<Ref, StepError> {
-        let curve = self.geometry();
+        write_nurbs(self.geometry(), w)
+    }
+}
+
+/// A 2D curve that can be written as a STEP curve entity, as a pcurve in a
+/// surface's parameters.
+pub trait StepCurve2 {
+    fn write_2d(&self, w: &mut Writer) -> Result<Ref, StepError>;
+}
+
+impl<S: Space<2>> StepCurve2 for Line<S, 2> {
+    fn write_2d(&self, w: &mut Writer) -> Result<Ref, StepError> {
+        let point = w.point_in(self.origin.coords)?;
+        let direction = w.direction_in(self.direction.coords)?;
+        let magnitude = real(self.direction.coords.norm())?;
+        let vector = w.add(format!("VECTOR('',{direction},{magnitude})"));
+        Ok(w.add(format!("LINE('',{point},{vector})")))
+    }
+}
+
+impl<S: Space<2>> StepCurve2 for NurbsCurve<S, 2> {
+    fn write_2d(&self, w: &mut Writer) -> Result<Ref, StepError> {
+        write_nurbs(self.geometry(), w)
+    }
+}
+
+impl<S: Space<2>> StepCurve2 for AnyCurve2<S> {
+    fn write_2d(&self, w: &mut Writer) -> Result<Ref, StepError> {
+        match self {
+            Self::Line(c) => c.write_2d(w),
+            Self::Nurbs(c) => c.write_2d(w),
+            other => Err(StepError::Unsupported(format!("pcurve {other:?}"))),
+        }
+    }
+}
+
+/// A NURBS curve in `N` dimensions: a `B_SPLINE_CURVE_WITH_KNOTS`, or the
+/// complex entity of a rational one.
+fn write_nurbs<const N: usize>(
+    curve: &golf_nurbs::NurbsCurve<N>,
+    w: &mut Writer,
+) -> Result<Ref, StepError> {
+    {
         let points = curve
             .control_points()
-            .map(|p| w.point(p))
+            .map(|p| w.point_in(p))
             .collect::<Result<Vec<_>, _>>()?;
         let degree = curve.degree();
         let (multiplicities, knots) = knot_lists(curve.knots())?;
         let points = refs(points);
         let count = curve.control_point_count();
-        let closed = logical(same(curve.control_point(0), curve.control_point(count - 1)));
+        let (first, last) = (curve.control_point(0), curve.control_point(count - 1));
+        let closed =
+            logical((first - last).norm() <= 1e-12 * (1.0 + first.norm().max(last.norm())));
         if !curve.is_rational() {
             return Ok(w.add(format!(
                 "B_SPLINE_CURVE_WITH_KNOTS('',{degree},{points},.UNSPECIFIED.,{closed},.F.,{multiplicities},{knots},.UNSPECIFIED.)"

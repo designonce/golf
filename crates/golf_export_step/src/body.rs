@@ -3,13 +3,16 @@
 use golf_brep::Body;
 use golf_brep::EdgeId;
 use golf_brep::FaceId;
+use golf_brep::FaceUv;
 use golf_brep::VertexId;
 use golf_color::Color;
 use golf_geom::AnyCurve;
+use golf_geom::AnyCurve2;
 use golf_geom::AnySurface;
 use golf_manifold::Point;
 use golf_manifold::Space;
 
+use crate::source::StepCoedge;
 use crate::source::StepEdge;
 use crate::source::StepFace;
 use crate::source::StepSource;
@@ -18,6 +21,7 @@ impl<S: Space<3>> StepSource for Body<S> {
     type Space = S;
     type Curve = AnyCurve<S>;
     type Surface = AnySurface<S>;
+    type Pcurve = AnyCurve2<FaceUv<S>>;
     type Vertex = VertexId;
     type Edge = EdgeId;
     type Face = FaceId;
@@ -42,7 +46,16 @@ impl<S: Space<3>> StepSource for Body<S> {
             let loops = face
                 .loops
                 .iter()
-                .map(|l| l.coedges.iter().map(|c| (c.edge, c.reversed)).collect())
+                .map(|l| {
+                    l.coedges
+                        .iter()
+                        .map(|c| StepCoedge {
+                            edge: c.edge,
+                            reversed: c.reversed,
+                            pcurve: c.pcurve.as_ref(),
+                        })
+                        .collect()
+                })
                 .collect();
             let data = StepFace {
                 surface: &face.surface,
