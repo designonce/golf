@@ -11,7 +11,6 @@ use golf_manifold::Mapping;
 use golf_manifold::Point;
 use golf_manifold::Space;
 use nalgebra::Vector2;
-use nalgebra::Vector3;
 
 use crate::error::HealIssue;
 use crate::pcurve::fit;
@@ -19,6 +18,11 @@ use crate::pcurve::shifted;
 use crate::seam::SeamError;
 use crate::seam::insert_seam;
 use crate::seam::needs_seam;
+
+/// How many times the tolerance an edge may stray from its face's surface
+/// before it's reported. Files from other systems are often looser than golf's
+/// tolerance; only gross gaps are worth a note.
+const OFF_SURFACE: f64 = 10.0;
 
 /// How closely healed geometry must agree.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -171,11 +175,19 @@ fn heal_loop<S: Space<3>>(
         }
         let result = match accurate {
             Some(pcurve) => Some(align(pcurve, *t_start, hint, &domain, report)),
-            None => {
-                compute(&surface, curve, (*t_start, *t_end), hint, false, tolerance).inspect(|_| {
+            None => compute(&surface, curve, (*t_start, *t_end), hint, false, tolerance).map(
+                |(pcurve, offset)| {
                     report.computed += 1;
-                })
-            }
+                    if offset > OFF_SURFACE * tolerance {
+                        report.issues.push(HealIssue::OffSurface {
+                            face,
+                            edge: *edge,
+                            distance: offset,
+                        });
+                    }
+                    pcurve
+                },
+            ),
         };
         match result {
             Some(pcurve) => {
@@ -210,8 +222,15 @@ fn heal_loop<S: Space<3>>(
             true,
             tolerance,
         ) {
-            Some(pcurve) => {
+            Some((pcurve, offset)) => {
                 report.computed += 1;
+                if offset > OFF_SURFACE * tolerance {
+                    report.issues.push(HealIssue::OffSurface {
+                        face,
+                        edge: *edge,
+                        distance: offset,
+                    });
+                }
                 settled[i] = Some(settle(pcurve, (*t_start, *t_end)));
             }
             None => report
@@ -321,7 +340,8 @@ fn period_shift(uv: Vector2<f64>, reference: Vector2<f64>, domain: &Domain<2>) -
 /// A pcurve for the part of `curve` from `t_start` to `t_end` (in loop
 /// order), by projecting samples onto `surface`, each from the last; the first
 /// from `seed` (the loop's uv there, if known). With `backwards`, `seed` is
-/// the uv at `t_end` and sampling runs from there.
+/// the uv at `t_end` and sampling runs from there. Also returns how far the
+/// curve strays from the surface, which no pcurve can make up.
 fn compute<S: Space<3>>(
     surface: &AnySurface<S>,
     curve: &AnyCurve<S>,
@@ -329,19 +349,25 @@ fn compute<S: Space<3>>(
     seed: Option<Vector2<f64>>,
     backwards: bool,
     tolerance: f64,
-) -> Option<AnyCurve2<FaceUv<S>>> {
+) -> Option<(AnyCurve2<FaceUv<S>>, f64)> {
     const INITIAL: usize = 16;
-    const MAX_SAMPLES: usize = 20_000;
+    const MAX_DEPTH: usize = 16;
     let domain = surface.domain();
     let (from, to) = if backwards {
         (t_end, t_start)
     } else {
         (t_start, t_end)
     };
-    let point = |t: f64| curve.apply(Point::new([t].into()));
+    let point = |t: f64| curve.apply(Point::new([t].into())).coords;
+    let raise = |uv: Vector2<f64>| surface.apply(Point::new(uv)).coords;
     let project = |t: f64, hint: Option<Vector2<f64>>| -> Option<Vector2<f64>> {
         let hint = hint.map(Point::<FaceUv<S>, 2>::new);
-        let uv = surface.project(point(t), hint).ok()?;
+        let uv = surface
+            .project(
+                Point::with_tag(point(t), surface.apply(Point::new(Vector2::zeros())).tag()),
+                hint,
+            )
+            .ok()?;
         let uv = match hint {
             Some(h) => domain.unwrap_near(uv, h),
             None => uv,
@@ -350,42 +376,64 @@ fn compute<S: Space<3>>(
     };
 
     // Samples in the order walked, each projected from the one before.
-    let mut samples: Vec<(f64, Vector2<f64>)> = Vec::with_capacity(INITIAL + 1);
+    let mut coarse: Vec<(f64, Vector2<f64>)> = Vec::with_capacity(INITIAL + 1);
     let mut hint = seed;
     for i in 0..=INITIAL {
         let t = from + (to - from) * i as f64 / INITIAL as f64;
         let uv = project(t, hint)?;
-        samples.push((t, uv));
+        coarse.push((t, uv));
         hint = Some(uv);
     }
-    // Halve any step whose straight uv segment strays from the curve.
-    let raise = |uv: Vector2<f64>| surface.apply(Point::new(uv)).coords;
-    let mut i = 0;
-    while i + 1 < samples.len() && samples.len() < MAX_SAMPLES {
-        let ((ta, a), (tb, b)) = (samples[i], samples[i + 1]);
-        let tm = (ta + tb) / 2.0;
-        let straight = raise(fix_poles(&domain, &[(ta, a), (tb, b)])[0].1.lerp(&b, 0.5));
-        let target: Vector3<f64> = point(tm).coords;
-        if (straight - target).norm() > tolerance / 2.0
-            && (tb - ta).abs() > 1e-12 * (1.0 + ta.abs())
-        {
-            let uv = project(tm, Some(a))?;
-            samples.insert(i + 1, (tm, uv));
-        } else {
-            i += 1;
+    // Halve any step whose straight uv segment strays, on the surface, from
+    // the projected curve. (Not from the curve itself: a file's edge can sit
+    // off its surface by more than any pcurve can follow.)
+    fn refine(
+        a: (f64, Vector2<f64>),
+        b: (f64, Vector2<f64>),
+        depth: usize,
+        split: &impl Fn((f64, Vector2<f64>), (f64, Vector2<f64>)) -> Option<Option<(f64, Vector2<f64>)>>,
+        out: &mut Vec<(f64, Vector2<f64>)>,
+    ) -> Option<()> {
+        match split(a, b)? {
+            Some(m) if depth < MAX_DEPTH => {
+                refine(a, m, depth + 1, split, out)?;
+                refine(m, b, depth + 1, split, out)
+            }
+            _ => {
+                out.push(b);
+                Some(())
+            }
         }
     }
+    let split = |(ta, a): (f64, Vector2<f64>), (tb, b): (f64, Vector2<f64>)| {
+        let tm = (ta + tb) / 2.0;
+        let m = project(tm, Some(a))?;
+        let lifted = fix_poles(&domain, &[(ta, a), (tb, b)]);
+        let straight = lifted[0].1.lerp(&lifted[1].1, 0.5);
+        Some(((raise(straight) - raise(m)).norm() > tolerance / 2.0).then_some((tm, m)))
+    };
+    let mut samples = vec![coarse[0]];
+    for w in coarse.windows(2) {
+        refine(w[0], w[1], 0, &split, &mut samples)?;
+    }
+    let offset = samples
+        .iter()
+        .map(|&(t, uv)| (raise(uv) - point(t)).norm())
+        .fold(0.0, f64::max);
     let mut samples = fix_poles(&domain, &samples);
     if samples.first()?.0 > samples.last()?.0 {
         samples.reverse();
     }
-    // A line if it follows the edge as well; else the polyline.
+    // A line if it follows the samples as well; else the polyline.
     let line = fit::<S>(&[samples[0], *samples.last()?], f64::INFINITY)?;
-    let range = (samples[0].0, samples.last()?.0);
-    if max_error(surface, curve, &line, range) <= tolerance {
-        return Some(line);
+    let on_line = |t: f64| line.apply(Point::new([t].into())).coords;
+    if samples
+        .iter()
+        .all(|&(t, uv)| (raise(on_line(t)) - raise(uv)).norm() <= tolerance)
+    {
+        return Some((line, offset));
     }
-    fit(&samples, 0.0)
+    Some((fit(&samples, 0.0)?, offset))
 }
 
 /// `uv` kept within the bounds of the domain's non-periodic axes: just past a
@@ -422,19 +470,28 @@ fn fix_poles(domain: &Domain<2>, samples: &[(f64, Vector2<f64>)]) -> Vec<(f64, V
     fixed
 }
 
-/// The furthest `pcurve`, through `surface`, strays from `curve` over `range`,
-/// at a few points.
+/// The furthest `pcurve`, through `surface`, strays from where `curve`
+/// projects onto `surface`, at a few points over `range`. A pcurve can't
+/// follow an edge closer than the edge is to its surface, so that's what it's
+/// held to.
 fn max_error<S: Space<3>>(
     surface: &AnySurface<S>,
     curve: &AnyCurve<S>,
     pcurve: &AnyCurve2<FaceUv<S>>,
     (a, b): (f64, f64),
 ) -> f64 {
+    let domain = surface.domain();
     (0..=8)
         .map(|i| {
             let t = a + (b - a) * i as f64 / 8.0;
-            let on_surface = surface.apply(pcurve.apply(Point::new([t].into()))).coords;
-            (on_surface - curve.apply(Point::new([t].into())).coords).norm()
+            let uv = pcurve.apply(Point::new([t].into()));
+            let on_surface = surface.apply(uv).coords;
+            let target = curve.apply(Point::new([t].into()));
+            let projected = match surface.project(target, Some(uv)) {
+                Ok(p) => surface.apply(domain.unwrap_near(p, uv)).coords,
+                Err(_) => target.coords,
+            };
+            (on_surface - projected).norm()
         })
         .fold(
             0.0,
@@ -444,12 +501,12 @@ fn max_error<S: Space<3>>(
 
 #[cfg(test)]
 mod tests {
+    use nalgebra::Vector3;
     use golf_geom::Placement;
     use golf_manifold::World;
     use golf_mesh::Tolerance;
     use golf_mesh::mesh;
     use golf_model::primitives;
-    use nalgebra::Vector3;
 
     use super::*;
 
