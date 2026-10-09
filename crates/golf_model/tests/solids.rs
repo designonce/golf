@@ -250,14 +250,27 @@ fn partial_revolutions_touching_the_axis() {
     // A wedge of sphere, a three-quarter cone, and half a torus.
     let r = 1.5;
     let half_disc = Profile::new(vec![
-        golf_model::Segment::Arc { center: Vector2::zeros(), radius: r, start_angle: -PI / 2.0, sweep: PI },
-        golf_model::Segment::Line { start: Vector2::new(0.0, r), end: Vector2::new(0.0, -r) },
+        golf_model::Segment::Arc {
+            center: Vector2::zeros(),
+            radius: r,
+            start_angle: -PI / 2.0,
+            sweep: PI,
+        },
+        golf_model::Segment::Line {
+            start: Vector2::new(0.0, r),
+            end: Vector2::new(0.0, -r),
+        },
     ])
     .unwrap();
     let wedge = golf_model::revolve_by(&tilted(), &half_disc.into(), 2.0).unwrap();
     assert_solid(&wedge, 2.0 / (2.0 * PI) * 4.0 / 3.0 * PI * r.powi(3), 0);
 
-    let triangle = Profile::polygon(&[Vector2::zeros(), Vector2::new(1.0, 0.0), Vector2::new(0.0, 2.0)]).unwrap();
+    let triangle = Profile::polygon(&[
+        Vector2::zeros(),
+        Vector2::new(1.0, 0.0),
+        Vector2::new(0.0, 2.0),
+    ])
+    .unwrap();
     let cone = golf_model::revolve_by(&tilted(), &triangle.into(), 1.5 * PI).unwrap();
     assert_solid(&cone, 0.75 * PI * 1.0 * 2.0 / 3.0, 0);
 
@@ -281,5 +294,46 @@ fn revolution_angles_are_checked() {
     for angle in [0.0, -1.0, 7.0, f64::NAN] {
         let result = golf_model::revolve_by(&tilted(), &square.clone().into(), angle);
         assert!(matches!(result, Err(ModelError::BadAngle(_))), "{angle}");
+    }
+}
+
+#[test]
+fn linear_and_circular_patterns() {
+    let placement = Placement::<World>::at(Point::new(Vector3::new(5.0, 0.0, 0.0)));
+    let peg = primitives::cylinder(&placement, 0.5, 2.0).unwrap();
+    let row =
+        golf_model::linear_pattern(&peg, Vector::new(Vector3::new(0.0, 2.0, 0.0)), 4).unwrap();
+    assert_eq!(row.len(), 4);
+    let centre = |b: &Body<World>| {
+        let (sum, n) = b
+            .vertices()
+            .fold((Vector3::zeros(), 0.0), |(s, n), (_, v)| {
+                (s + v.point.coords, n + 1.0)
+            });
+        sum / n
+    };
+    for (i, b) in row.iter().enumerate() {
+        assert_eq!(b.validate(1e-9), Ok(()));
+        assert!((centre(b) - centre(&peg) - Vector3::new(0.0, 2.0 * i as f64, 0.0)).norm() < 1e-12);
+    }
+    let ring = golf_model::circular_pattern(
+        &peg,
+        Point::new(Vector3::zeros()),
+        Vector::new(Vector3::z()),
+        6,
+        2.0 * PI,
+    )
+    .unwrap();
+    assert_eq!(ring.len(), 6);
+    for (i, b) in ring.iter().enumerate() {
+        assert_solid(b, PI * 0.25 * 2.0, 0);
+        let angle = PI / 3.0 * i as f64;
+        let c = centre(&peg);
+        let expected = Vector3::new(
+            c.x * angle.cos() - c.y * angle.sin(),
+            c.x * angle.sin() + c.y * angle.cos(),
+            c.z,
+        );
+        assert!((centre(b) - expected).norm() < 1e-9, "{i}");
     }
 }

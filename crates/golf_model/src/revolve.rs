@@ -100,7 +100,8 @@ pub fn revolve_by<S: Space<3>>(
         for (index, segment) in segments.iter().enumerate() {
             let (a, b) = (index, (index + 1) % n);
             let (pa, pb) = (segment.start(), segment.end());
-            let along_axis = matches!(segment, Segment::Line { .. }) && on_axis(pa.x) && on_axis(pb.x);
+            let along_axis =
+                matches!(segment, Segment::Line { .. }) && on_axis(pa.x) && on_axis(pb.x);
             let perpendicular = matches!(segment, &Segment::Line { start, end }
                 if (end.y - start.y).abs() <= 1e-12 * (end - start).norm());
             if full && along_axis {
@@ -113,17 +114,26 @@ pub fn revolve_by<S: Space<3>>(
             let partial_edges = match full {
                 true => None,
                 false => {
-                    let (va, vb) = (corners.vertex(&mut body, a, pa)?, corners.vertex(&mut body, b, pb)?);
+                    let (va, vb) = (
+                        corners.vertex(&mut body, a, pa)?,
+                        corners.vertex(&mut body, b, pb)?,
+                    );
                     let start_edge = profile_edge(&mut body, segment, &frame, |forward| {
                         if forward { (va, vb) } else { (vb, va) }
                     })?;
                     let end_edge = match along_axis {
                         true => start_edge,
                         false => {
-                            let (va_end, vb_end) =
-                                (corners.end_vertex(&mut body, a, pa)?, corners.end_vertex(&mut body, b, pb)?);
+                            let (va_end, vb_end) = (
+                                corners.end_vertex(&mut body, a, pa)?,
+                                corners.end_vertex(&mut body, b, pb)?,
+                            );
                             profile_edge(&mut body, segment, &end, |forward| {
-                                if forward { (va_end, vb_end) } else { (vb_end, va_end) }
+                                if forward {
+                                    (va_end, vb_end)
+                                } else {
+                                    (vb_end, va_end)
+                                }
                             })?
                         }
                     };
@@ -180,22 +190,34 @@ pub fn revolve_by<S: Space<3>>(
                 let (start_edge, end_edge) = match partial_edges {
                     Some((start_edge, end_edge, _)) => (start_edge, end_edge),
                     None => {
-                        let (va, vb) = (corners.vertex(&mut body, a, pa)?, corners.vertex(&mut body, b, pb)?);
+                        let (va, vb) = (
+                            corners.vertex(&mut body, a, pa)?,
+                            corners.vertex(&mut body, b, pb)?,
+                        );
                         let (start, finish) = if swept.forward { (va, vb) } else { (vb, va) };
-                        let seam = body.add_edge(swept.curve.clone(), swept.range(), start, finish)?;
+                        let seam =
+                            body.add_edge(swept.curve.clone(), swept.range(), start, finish)?;
                         (seam, seam)
                     }
                 };
                 let (va_param, vb_param) = (swept.v(swept.t_from), swept.v(swept.t_to));
                 let mut coedges = Vec::new();
                 if let Some(e) = arc_a {
-                    coedges.push(Coedge::new(e, false).with_pcurve(uv_line([0.0, va_param], [1.0, 0.0])));
+                    coedges.push(
+                        Coedge::new(e, false).with_pcurve(uv_line([0.0, va_param], [1.0, 0.0])),
+                    );
                 }
-                coedges.push(Coedge::new(end_edge, !swept.forward).with_pcurve(swept.seam_pcurve(angle)));
+                coedges.push(
+                    Coedge::new(end_edge, !swept.forward).with_pcurve(swept.seam_pcurve(angle)),
+                );
                 if let Some(e) = arc_b {
-                    coedges.push(Coedge::new(e, true).with_pcurve(uv_line([0.0, vb_param], [1.0, 0.0])));
+                    coedges.push(
+                        Coedge::new(e, true).with_pcurve(uv_line([0.0, vb_param], [1.0, 0.0])),
+                    );
                 }
-                coedges.push(Coedge::new(start_edge, swept.forward).with_pcurve(swept.seam_pcurve(0.0)));
+                coedges.push(
+                    Coedge::new(start_edge, swept.forward).with_pcurve(swept.seam_pcurve(0.0)),
+                );
                 body.add_face(swept.surface, vb_param > va_param, vec![Loop::new(coedges)])?
             };
             faces.push(face);
@@ -236,7 +258,10 @@ fn profile_edge<S: Space<3>>(
         Segment::Line { start, end } => {
             let length = (end - start).norm();
             let direction = (end - start) / length;
-            let line = Line::new(in_plane(start), frame.vector(Vector3::new(direction.x, 0.0, direction.y)));
+            let line = Line::new(
+                in_plane(start),
+                frame.vector(Vector3::new(direction.x, 0.0, direction.y)),
+            );
             (line.into(), (0.0, length))
         }
         Segment::Arc {
@@ -301,7 +326,12 @@ struct Corners<'a, S: Space<3>, F: Fn(f64) -> bool> {
 
 impl<S: Space<3>, F: Fn(f64) -> bool> Corners<'_, S, F> {
     /// The vertex at corner `k`, which is at `p` in the sketch, at angle 0.
-    fn vertex(&mut self, body: &mut Body<S>, k: usize, p: Vector2<f64>) -> Result<VertexId, ModelError> {
+    fn vertex(
+        &mut self,
+        body: &mut Body<S>,
+        k: usize,
+        p: Vector2<f64>,
+    ) -> Result<VertexId, ModelError> {
         if let Some(&v) = self.vertices.get(&k) {
             return Ok(v);
         }
@@ -312,7 +342,12 @@ impl<S: Space<3>, F: Fn(f64) -> bool> Corners<'_, S, F> {
 
     /// The vertex at corner `k` at the end of the revolution: the same vertex
     /// for a full turn, or on the axis.
-    fn end_vertex(&mut self, body: &mut Body<S>, k: usize, p: Vector2<f64>) -> Result<VertexId, ModelError> {
+    fn end_vertex(
+        &mut self,
+        body: &mut Body<S>,
+        k: usize,
+        p: Vector2<f64>,
+    ) -> Result<VertexId, ModelError> {
         if self.full || (self.on_axis)(p.x) {
             return self.vertex(body, k, p);
         }
@@ -326,7 +361,12 @@ impl<S: Space<3>, F: Fn(f64) -> bool> Corners<'_, S, F> {
 
     /// The arc corner `k` sweeps, parametrised by the angle of revolution;
     /// `None` on the axis.
-    fn arc(&mut self, body: &mut Body<S>, k: usize, p: Vector2<f64>) -> Result<Option<EdgeId>, ModelError> {
+    fn arc(
+        &mut self,
+        body: &mut Body<S>,
+        k: usize,
+        p: Vector2<f64>,
+    ) -> Result<Option<EdgeId>, ModelError> {
         if (self.on_axis)(p.x) {
             return Ok(None);
         }
@@ -335,7 +375,10 @@ impl<S: Space<3>, F: Fn(f64) -> bool> Corners<'_, S, F> {
         }
         let start = self.vertex(body, k, p)?;
         let finish = self.end_vertex(body, k, p)?;
-        let centre = Placement::new(self.frame.point(Vector3::new(0.0, 0.0, p.y)), self.frame.rotation);
+        let centre = Placement::new(
+            self.frame.point(Vector3::new(0.0, 0.0, p.y)),
+            self.frame.rotation,
+        );
         let e = body.add_edge(Circle::new(centre, p.x), (0.0, self.angle), start, finish)?;
         self.arcs.insert(k, e);
         Ok(Some(e))

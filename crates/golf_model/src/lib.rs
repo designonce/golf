@@ -14,6 +14,7 @@
 
 mod error;
 mod extrude;
+mod pattern;
 pub mod primitives;
 mod revolve;
 
@@ -25,5 +26,7 @@ pub use golf_sketch::ProfileBuilder;
 pub use golf_sketch::Region;
 pub use golf_sketch::Segment;
 pub use golf_sketch::SketchError;
+pub use pattern::circular_pattern;
+pub use pattern::linear_pattern;
 pub use revolve::revolve;
 pub use revolve::revolve_by;
