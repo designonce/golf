@@ -235,3 +235,51 @@ fn solids_export_to_step() {
     assert_eq!(count("TOROIDAL_SURFACE"), 2);
     assert_eq!(count("CONICAL_SURFACE"), 1);
 }
+
+#[test]
+fn partial_revolution_of_an_off_axis_rectangle() {
+    // Pappus: volume = angle · area · centroid distance from the axis.
+    let rectangle = Profile::rectangle(Vector2::new(1.0, 0.0), Vector2::new(2.0, 1.0)).unwrap();
+    let body = golf_model::revolve_by(&tilted(), &rectangle.into(), PI / 2.0).unwrap();
+    assert_eq!(body.faces().len(), 6);
+    assert_solid(&body, PI / 2.0 * 1.0 * 1.5, 0);
+}
+
+#[test]
+fn partial_revolutions_touching_the_axis() {
+    // A wedge of sphere, a three-quarter cone, and half a torus.
+    let r = 1.5;
+    let half_disc = Profile::new(vec![
+        golf_model::Segment::Arc { center: Vector2::zeros(), radius: r, start_angle: -PI / 2.0, sweep: PI },
+        golf_model::Segment::Line { start: Vector2::new(0.0, r), end: Vector2::new(0.0, -r) },
+    ])
+    .unwrap();
+    let wedge = golf_model::revolve_by(&tilted(), &half_disc.into(), 2.0).unwrap();
+    assert_solid(&wedge, 2.0 / (2.0 * PI) * 4.0 / 3.0 * PI * r.powi(3), 0);
+
+    let triangle = Profile::polygon(&[Vector2::zeros(), Vector2::new(1.0, 0.0), Vector2::new(0.0, 2.0)]).unwrap();
+    let cone = golf_model::revolve_by(&tilted(), &triangle.into(), 1.5 * PI).unwrap();
+    assert_solid(&cone, 0.75 * PI * 1.0 * 2.0 / 3.0, 0);
+
+    let tube = Profile::circle(Vector2::new(3.0, 0.0), 1.0).unwrap();
+    let half_torus = golf_model::revolve_by(&tilted(), &tube.into(), PI).unwrap();
+    assert_solid(&half_torus, PI * PI * 3.0, 0);
+}
+
+#[test]
+fn partial_revolution_turns_a_hole_into_a_tunnel() {
+    let outer = Profile::rectangle(Vector2::new(1.0, 0.0), Vector2::new(3.0, 4.0)).unwrap();
+    let hole = Profile::circle(Vector2::new(2.0, 2.0), 0.5).unwrap();
+    let body = golf_model::revolve_by(&tilted(), &Region::new(outer, vec![hole]), PI).unwrap();
+    assert_eq!(body.shells().len(), 1);
+    assert_solid(&body, PI * (8.0 * 2.0 - PI * 0.25 * 2.0), 1);
+}
+
+#[test]
+fn revolution_angles_are_checked() {
+    let square = Profile::rectangle(Vector2::new(1.0, 0.0), Vector2::new(2.0, 1.0)).unwrap();
+    for angle in [0.0, -1.0, 7.0, f64::NAN] {
+        let result = golf_model::revolve_by(&tilted(), &square.clone().into(), angle);
+        assert!(matches!(result, Err(ModelError::BadAngle(_))), "{angle}");
+    }
+}

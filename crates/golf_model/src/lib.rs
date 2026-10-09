@@ -26,3 +26,4 @@ pub use golf_sketch::Region;
 pub use golf_sketch::Segment;
 pub use golf_sketch::SketchError;
 pub use revolve::revolve;
+pub use revolve::revolve_by;

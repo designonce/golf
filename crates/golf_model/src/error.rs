@@ -9,6 +9,8 @@ pub enum ModelError {
     Sketch(#[from] SketchError),
     #[error("extrusion distance must be finite and non-zero")]
     ZeroDistance,
+    #[error("revolution angle {0} must be in (0, 2π]")]
+    BadAngle(f64),
     /// Revolving needs the profile on one side of the axis (sketch x >= 0).
     #[error("segment {index} crosses the axis of revolution")]
     CrossesAxis { index: usize },

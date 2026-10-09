@@ -20,6 +20,7 @@ use golf_geom::Torus;
 use golf_manifold::Space;
 use golf_sketch::Region;
 use golf_sketch::Segment;
+use nalgebra::UnitQuaternion;
 use nalgebra::Vector2;
 use nalgebra::Vector3;
 
@@ -35,16 +36,45 @@ use crate::extrude::uv_line;
 /// cone, sphere or torus, and is itself the seam of that face. Holes revolve
 /// into internal voids, each its own shell.
 pub fn revolve<S: Space<3>>(plane: &Placement<S>, region: &Region) -> Result<Body<S>, ModelError> {
+    revolve_by(plane, region, TAU)
+}
+
+/// [`revolve`] through `angle` radians (anticlockwise about the sketch's y
+/// axis, seen from its tip), in `(0, 2π]`.
+///
+/// Short of a full turn the solid is closed by two planar caps: the region at
+/// angle 0 and its copy at `angle`. Each revolved face is then bounded by the
+/// segment at both angles rather than a seam, and holes become tunnels rather
+/// than voids, so everything is one shell.
+pub fn revolve_by<S: Space<3>>(
+    plane: &Placement<S>,
+    region: &Region,
+    angle: f64,
+) -> Result<Body<S>, ModelError> {
+    if !(angle > 0.0 && angle <= TAU * (1.0 + 1e-12)) {
+        return Err(ModelError::BadAngle(angle));
+    }
+    let full = angle >= TAU * (1.0 - 1e-12);
+    let angle = if full { TAU } else { angle };
     // The frame the surfaces of revolution are placed in: local x is the
-    // sketch's x (the radial direction at angle 0), local z the axis.
+    // sketch's x (the radial direction at angle 0), local z the axis. `end` is
+    // the same frame turned through the angle, for the far side of a partial
+    // revolution.
     let frame = Placement::from_axes(
         plane.origin,
         plane.vector(Vector3::y()),
         plane.vector(Vector3::x()),
     );
+    let axis = nalgebra::Unit::new_normalize(frame.vector(Vector3::z()).coords);
+    let turn = UnitQuaternion::from_axis_angle(&axis, angle);
+    let end = Placement::new(frame.origin, turn * frame.rotation);
+    let end_plane = Placement::new(plane.origin, turn * plane.rotation);
     let on_axis = |x: f64| x.abs() <= 1e-12 * (1.0 + region_size(region));
 
     let mut body = Body::with_tag(plane.origin.tag());
+    let mut all_faces = Vec::new();
+    let mut start_caps = Vec::new();
+    let mut end_caps = Vec::new();
     for profile in region.profiles() {
         let segments: Vec<Segment> = profile.segments().iter().map(normalise).collect();
         for (index, segment) in segments.iter().enumerate() {
@@ -55,101 +85,223 @@ pub fn revolve<S: Space<3>>(plane: &Placement<S>, region: &Region) -> Result<Bod
         let n = segments.len();
         let mut corners = Corners {
             frame: &frame,
+            end: &end,
+            angle,
+            full,
             on_axis: &on_axis,
             vertices: HashMap::new(),
-            circles: HashMap::new(),
+            end_vertices: HashMap::new(),
+            arcs: HashMap::new(),
         };
         let mut faces = Vec::new();
+        let mut start_cap = Vec::new();
+        let mut end_cap = Vec::new();
 
         for (index, segment) in segments.iter().enumerate() {
             let (a, b) = (index, (index + 1) % n);
             let (pa, pb) = (segment.start(), segment.end());
-            if matches!(segment, Segment::Line { .. }) && on_axis(pa.x) && on_axis(pb.x) {
+            let along_axis = matches!(segment, Segment::Line { .. }) && on_axis(pa.x) && on_axis(pb.x);
+            let perpendicular = matches!(segment, &Segment::Line { start, end }
+                if (end.y - start.y).abs() <= 1e-12 * (end - start).norm());
+            if full && along_axis {
                 continue;
             }
-            let circle_a = corners.circle(&mut body, a, pa)?;
-            let circle_b = corners.circle(&mut body, b, pb)?;
+            let arc_a = corners.arc(&mut body, a, pa)?;
+            let arc_b = corners.arc(&mut body, b, pb)?;
+            // A partial revolution needs the segment as an edge at both angles
+            // (one edge if it lies on the axis), whatever its face.
+            let partial_edges = match full {
+                true => None,
+                false => {
+                    let (va, vb) = (corners.vertex(&mut body, a, pa)?, corners.vertex(&mut body, b, pb)?);
+                    let start_edge = profile_edge(&mut body, segment, &frame, |forward| {
+                        if forward { (va, vb) } else { (vb, va) }
+                    })?;
+                    let end_edge = match along_axis {
+                        true => start_edge,
+                        false => {
+                            let (va_end, vb_end) =
+                                (corners.end_vertex(&mut body, a, pa)?, corners.end_vertex(&mut body, b, pb)?);
+                            profile_edge(&mut body, segment, &end, |forward| {
+                                if forward { (va_end, vb_end) } else { (vb_end, va_end) }
+                            })?
+                        }
+                    };
+                    let forward = segment_forward(segment);
+                    let cap_pcurve = cap_pcurve::<S>(segment);
+                    let cap = |edge, reversed| match &cap_pcurve {
+                        Some(line) => Coedge::new(edge, reversed).with_pcurve(line.clone()),
+                        None => Coedge::new(edge, reversed),
+                    };
+                    start_cap.push(cap(start_edge, !forward));
+                    end_cap.push(cap(end_edge, forward));
+                    Some((start_edge, end_edge, forward))
+                }
+            };
+            if along_axis {
+                continue;
+            }
 
-            let face = match segment {
-                // Perpendicular to the axis: a disc or annulus, bounded by the
-                // circles alone. Its plane's normal is the axis; the solid is to
-                // the profile's left, so the face points along the axis when the
-                // profile runs inwards.
-                &Segment::Line { start, end }
-                    if (end.y - start.y).abs() <= 1e-12 * (end - start).norm() =>
-                {
-                    let surface = Plane::new(Placement::new(
-                        frame.point(Vector3::new(0.0, 0.0, start.y)),
-                        frame.rotation,
-                    ));
-                    let loops = [circle_a.map(|e| (e, false)), circle_b.map(|e| (e, true))]
+            let face = if perpendicular {
+                // A disc, annulus or sector perpendicular to the axis. Its
+                // plane's normal is the axis; the solid is to the profile's
+                // left, so the face points along the axis when the profile runs
+                // inwards. Arc A runs forwards and arc B back, as on the curved
+                // faces; a partial one is closed by the segment at each angle.
+                let surface = Plane::new(Placement::new(
+                    frame.point(Vector3::new(0.0, 0.0, pa.y)),
+                    frame.rotation,
+                ));
+                let same_sense = pb.x < pa.x;
+                let loops = match partial_edges {
+                    None => [arc_a.map(|e| (e, false)), arc_b.map(|e| (e, true))]
                         .into_iter()
                         .flatten()
                         .map(|(e, reversed)| Loop::new(vec![Coedge::new(e, reversed)]))
-                        .collect();
-                    body.add_face(surface, end.x < start.x, loops)?
-                }
-                _ => {
-                    let swept = Revolved::new(index, segment, &frame)?;
-                    let (va, vb) = (
-                        corners.vertex(&mut body, a, pa)?,
-                        corners.vertex(&mut body, b, pb)?,
-                    );
-                    let (start, end) = match swept.forward {
-                        true => (va, vb),
-                        false => (vb, va),
-                    };
-                    let seam = body.add_edge(swept.curve.clone(), swept.range(), start, end)?;
-                    // In the face's (u, v), u the angle of revolution: circle A
-                    // along v_a, up the seam at u = 2π, back along circle B at v_b,
-                    // down the seam at u = 0. That runs anticlockwise about the
-                    // surface normal exactly when v increases from A to B, which
-                    // is when the normal points out of the solid.
-                    let (va_param, vb_param) = (swept.v(swept.t_from), swept.v(swept.t_to));
-                    let mut coedges = Vec::new();
-                    if let Some(e) = circle_a {
-                        coedges.push(
-                            Coedge::new(e, false).with_pcurve(uv_line([0.0, va_param], [1.0, 0.0])),
-                        );
+                        .collect(),
+                    Some((start_edge, end_edge, forward)) => {
+                        let mut coedges = Vec::new();
+                        coedges.extend(arc_a.map(|e| Coedge::new(e, false)));
+                        coedges.push(Coedge::new(end_edge, !forward));
+                        coedges.extend(arc_b.map(|e| Coedge::new(e, true)));
+                        coedges.push(Coedge::new(start_edge, forward));
+                        vec![Loop::new(coedges)]
                     }
-                    coedges.push(
-                        Coedge::new(seam, !swept.forward).with_pcurve(swept.seam_pcurve(TAU)),
-                    );
-                    if let Some(e) = circle_b {
-                        coedges.push(
-                            Coedge::new(e, true).with_pcurve(uv_line([0.0, vb_param], [1.0, 0.0])),
-                        );
+                };
+                body.add_face(surface, same_sense, loops)?
+            } else {
+                let swept = Revolved::new(index, segment, &frame)?;
+                // In the face's (u, v), u the angle of revolution: arc A along
+                // v_a, up the segment's edge at u = angle, back along arc B at
+                // v_b, down its edge at u = 0. That runs anticlockwise about the
+                // surface normal exactly when v increases from A to B, which is
+                // when the normal points out of the solid. A full revolution
+                // uses one seam edge for both.
+                let (start_edge, end_edge) = match partial_edges {
+                    Some((start_edge, end_edge, _)) => (start_edge, end_edge),
+                    None => {
+                        let (va, vb) = (corners.vertex(&mut body, a, pa)?, corners.vertex(&mut body, b, pb)?);
+                        let (start, finish) = if swept.forward { (va, vb) } else { (vb, va) };
+                        let seam = body.add_edge(swept.curve.clone(), swept.range(), start, finish)?;
+                        (seam, seam)
                     }
-                    coedges
-                        .push(Coedge::new(seam, swept.forward).with_pcurve(swept.seam_pcurve(0.0)));
-                    body.add_face(swept.surface, vb_param > va_param, vec![Loop::new(coedges)])?
+                };
+                let (va_param, vb_param) = (swept.v(swept.t_from), swept.v(swept.t_to));
+                let mut coedges = Vec::new();
+                if let Some(e) = arc_a {
+                    coedges.push(Coedge::new(e, false).with_pcurve(uv_line([0.0, va_param], [1.0, 0.0])));
                 }
+                coedges.push(Coedge::new(end_edge, !swept.forward).with_pcurve(swept.seam_pcurve(angle)));
+                if let Some(e) = arc_b {
+                    coedges.push(Coedge::new(e, true).with_pcurve(uv_line([0.0, vb_param], [1.0, 0.0])));
+                }
+                coedges.push(Coedge::new(start_edge, swept.forward).with_pcurve(swept.seam_pcurve(0.0)));
+                body.add_face(swept.surface, vb_param > va_param, vec![Loop::new(coedges)])?
             };
             faces.push(face);
         }
-        body.add_shell(faces)?;
+        match full {
+            true => {
+                body.add_shell(faces)?;
+            }
+            false => {
+                all_faces.extend(faces);
+                start_caps.push(Loop::new(start_cap));
+                end_cap.reverse();
+                end_caps.push(Loop::new(end_cap));
+            }
+        }
+    }
+    if !full {
+        // The region itself closes the solid at angle 0, its normal (the
+        // sketch's) pointing away from the turn; its copy closes it at the end,
+        // facing the other way.
+        all_faces.push(body.add_face(Plane::new(*plane), true, start_caps)?);
+        all_faces.push(body.add_face(Plane::new(end_plane), false, end_caps)?);
+        body.add_shell(all_faces)?;
     }
     Ok(body)
 }
 
-/// A profile's corners as they're needed: their vertices, and the circles
-/// off-axis ones sweep. Made on demand, so a corner on the axis that only bounds
-/// a disc leaves no stray vertex.
+/// A profile segment as an edge in the profile plane of `frame`, from the
+/// vertices `along` gives for its direction along the curve.
+fn profile_edge<S: Space<3>>(
+    body: &mut Body<S>,
+    segment: &Segment,
+    frame: &Placement<S>,
+    along: impl Fn(bool) -> (VertexId, VertexId),
+) -> Result<EdgeId, ModelError> {
+    let in_plane = |p: Vector2<f64>| frame.point(Vector3::new(p.x, 0.0, p.y));
+    let (curve, range): (AnyCurve<S>, _) = match *segment {
+        Segment::Line { start, end } => {
+            let length = (end - start).norm();
+            let direction = (end - start) / length;
+            let line = Line::new(in_plane(start), frame.vector(Vector3::new(direction.x, 0.0, direction.y)));
+            (line.into(), (0.0, length))
+        }
+        Segment::Arc {
+            center,
+            radius,
+            start_angle,
+            sweep,
+        } => {
+            let circle = Circle::new(meridional(frame, center), radius);
+            let (t0, t1) = (start_angle, start_angle + sweep);
+            (circle.into(), (t0.min(t1), t0.max(t1)))
+        }
+    };
+    let (start, end) = along(segment_forward(segment));
+    Ok(body.add_edge(curve, range, start, end)?)
+}
+
+/// The frame of an arc's circle in `frame`'s profile plane: x radial, y along
+/// the axis, so the circle's angle is the sketch angle.
+fn meridional<S: Space<3>>(frame: &Placement<S>, center: Vector2<f64>) -> Placement<S> {
+    Placement::from_axes(
+        frame.point(Vector3::new(center.x, 0.0, center.y)),
+        frame.vector(-Vector3::y()),
+        frame.vector(Vector3::x()),
+    )
+}
+
+/// Whether a segment's curve runs the same way as the profile: lines always,
+/// arcs when anticlockwise.
+fn segment_forward(segment: &Segment) -> bool {
+    match *segment {
+        Segment::Line { .. } => true,
+        Segment::Arc { sweep, .. } => sweep > 0.0,
+    }
+}
+
+/// A line segment's pcurve on a cap, whose uv are sketch coordinates; arcs have
+/// none, there being no 2D circle pcurve yet.
+fn cap_pcurve<S: Space<3>>(segment: &Segment) -> Option<Line<golf_brep::FaceUv<S>, 2>> {
+    match *segment {
+        Segment::Line { start, end } => {
+            let direction = (end - start).normalize();
+            Some(uv_line([start.x, start.y], [direction.x, direction.y]))
+        }
+        Segment::Arc { .. } => None,
+    }
+}
+
+/// A profile's corners as they're needed: their vertices (at both angles of a
+/// partial revolution), and the arcs off-axis ones sweep. Made on demand, so a
+/// corner on the axis that only bounds a disc leaves no stray vertex.
 struct Corners<'a, S: Space<3>, F: Fn(f64) -> bool> {
     frame: &'a Placement<S>,
+    end: &'a Placement<S>,
+    angle: f64,
+    full: bool,
     on_axis: &'a F,
     vertices: HashMap<usize, VertexId>,
-    circles: HashMap<usize, EdgeId>,
+    end_vertices: HashMap<usize, VertexId>,
+    arcs: HashMap<usize, EdgeId>,
 }
 
 impl<S: Space<3>, F: Fn(f64) -> bool> Corners<'_, S, F> {
-    /// The vertex at corner `k`, which is at `p` in the sketch.
-    fn vertex(
-        &mut self,
-        body: &mut Body<S>,
-        k: usize,
-        p: Vector2<f64>,
-    ) -> Result<VertexId, ModelError> {
+    /// The vertex at corner `k`, which is at `p` in the sketch, at angle 0.
+    fn vertex(&mut self, body: &mut Body<S>, k: usize, p: Vector2<f64>) -> Result<VertexId, ModelError> {
         if let Some(&v) = self.vertices.get(&k) {
             return Ok(v);
         }
@@ -158,27 +310,34 @@ impl<S: Space<3>, F: Fn(f64) -> bool> Corners<'_, S, F> {
         Ok(v)
     }
 
-    /// The circle corner `k` sweeps, parametrised by the angle of revolution;
+    /// The vertex at corner `k` at the end of the revolution: the same vertex
+    /// for a full turn, or on the axis.
+    fn end_vertex(&mut self, body: &mut Body<S>, k: usize, p: Vector2<f64>) -> Result<VertexId, ModelError> {
+        if self.full || (self.on_axis)(p.x) {
+            return self.vertex(body, k, p);
+        }
+        if let Some(&v) = self.end_vertices.get(&k) {
+            return Ok(v);
+        }
+        let v = body.add_vertex(self.end.point(Vector3::new(p.x, 0.0, p.y)))?;
+        self.end_vertices.insert(k, v);
+        Ok(v)
+    }
+
+    /// The arc corner `k` sweeps, parametrised by the angle of revolution;
     /// `None` on the axis.
-    fn circle(
-        &mut self,
-        body: &mut Body<S>,
-        k: usize,
-        p: Vector2<f64>,
-    ) -> Result<Option<EdgeId>, ModelError> {
+    fn arc(&mut self, body: &mut Body<S>, k: usize, p: Vector2<f64>) -> Result<Option<EdgeId>, ModelError> {
         if (self.on_axis)(p.x) {
             return Ok(None);
         }
-        if let Some(&e) = self.circles.get(&k) {
+        if let Some(&e) = self.arcs.get(&k) {
             return Ok(Some(e));
         }
-        let v = self.vertex(body, k, p)?;
-        let centre = Placement::new(
-            self.frame.point(Vector3::new(0.0, 0.0, p.y)),
-            self.frame.rotation,
-        );
-        let e = body.add_edge(Circle::new(centre, p.x), (0.0, TAU), v, v)?;
-        self.circles.insert(k, e);
+        let start = self.vertex(body, k, p)?;
+        let finish = self.end_vertex(body, k, p)?;
+        let centre = Placement::new(self.frame.point(Vector3::new(0.0, 0.0, p.y)), self.frame.rotation);
+        let e = body.add_edge(Circle::new(centre, p.x), (0.0, self.angle), start, finish)?;
+        self.arcs.insert(k, e);
         Ok(Some(e))
     }
 }
@@ -237,11 +396,7 @@ impl<S: Space<3>> Revolved<S> {
                 start_angle,
                 sweep,
             } => {
-                let circle_frame = Placement::from_axes(
-                    in_profile_plane(center),
-                    frame.vector(-Vector3::y()),
-                    frame.vector(Vector3::x()),
-                );
+                let circle_frame = meridional(frame, center);
                 let surface: AnySurface<S> = if center.x.abs() <= 1e-12 * (1.0 + radius) {
                     Sphere::from_placement(on_axis_at(center.y), radius).into()
                 } else if center.x > radius {
