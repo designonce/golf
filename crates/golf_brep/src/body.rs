@@ -138,6 +138,18 @@ impl<S: Space<3>> Body<S> {
         if surface.apply(Point::new([0.0, 0.0].into())).tag() != self.tag {
             return Err(TopologyError::WrongSpace);
         }
+        self.check_loops(&loops)?;
+        self.faces.push(Face {
+            surface,
+            same_sense,
+            loops,
+            color: None,
+        });
+        Ok(FaceId::new(self.faces.len() - 1))
+    }
+
+    /// Checks each loop is a closed cycle of existing edges.
+    fn check_loops(&self, loops: &[Loop<S>]) -> Result<(), TopologyError> {
         for (loop_index, l) in loops.iter().enumerate() {
             if l.coedges.is_empty() {
                 return Err(TopologyError::EmptyLoop);
@@ -159,13 +171,7 @@ impl<S: Space<3>> Body<S> {
                 }
             }
         }
-        self.faces.push(Face {
-            surface,
-            same_sense,
-            loops,
-            color: None,
-        });
-        Ok(FaceId::new(self.faces.len() - 1))
+        Ok(())
     }
 
     pub fn add_shell(&mut self, faces: Vec<FaceId>) -> Result<ShellId, TopologyError> {
@@ -174,6 +180,60 @@ impl<S: Space<3>> Body<S> {
         }
         self.shells.push(Shell { faces });
         Ok(ShellId::new(self.shells.len() - 1))
+    }
+
+    /// Splits `edge` at curve parameter `t` (strictly inside its range) by a
+    /// new vertex there: the edge keeps the part before `t`, and a new edge
+    /// takes the rest. Every coedge using the edge becomes two, in the order
+    /// it runs, both keeping its pcurve (which shares the edge's parameter, so
+    /// still fits each part). Returns the new vertex and edge.
+    pub fn split_edge(
+        &mut self,
+        edge: EdgeId,
+        t: f64,
+    ) -> Result<(VertexId, EdgeId), TopologyError> {
+        let (range, end, curve) = {
+            let e = self.try_edge(edge)?;
+            (e.range, e.end, e.curve.clone())
+        };
+        if !(range.0 < t && t < range.1) {
+            return Err(TopologyError::BadRange(range.0, t));
+        }
+        let vertex = self.add_vertex(curve.apply(Point::new([t].into())))?;
+        let rest = self.add_edge(curve, (t, range.1), vertex, end)?;
+        let e = &mut self.edges[edge.index()];
+        e.range = (range.0, t);
+        e.end = vertex;
+        for face in &mut self.faces {
+            for l in &mut face.loops {
+                let mut coedges = Vec::with_capacity(l.coedges.len() + 1);
+                for c in l.coedges.drain(..) {
+                    if c.edge != edge {
+                        coedges.push(c);
+                        continue;
+                    }
+                    let second = Coedge {
+                        edge: rest,
+                        ..c.clone()
+                    };
+                    match c.reversed {
+                        false => coedges.extend([c, second]),
+                        true => coedges.extend([second, c]),
+                    }
+                }
+                l.coedges = coedges;
+            }
+        }
+        Ok((vertex, rest))
+    }
+
+    /// Replaces a face's loops, checking each is a closed cycle of existing
+    /// edges as [`Self::add_face`] does.
+    pub fn set_loops(&mut self, face: FaceId, loops: Vec<Loop<S>>) -> Result<(), TopologyError> {
+        self.try_face(face)?;
+        self.check_loops(&loops)?;
+        self.faces[face.index()].loops = loops;
+        Ok(())
     }
 
     /// Replaces (or removes) the pcurve of coedge `coedge` of loop `loop_index`
@@ -430,6 +490,39 @@ mod tests {
 
     use super::*;
     use crate::cuboid;
+
+    #[test]
+    fn splitting_an_edge_splits_every_use_of_it() {
+        let mut body = crate::cylinder(
+            Placement::<World>::at(Point::new(Vector3::zeros())),
+            2.0,
+            3.0,
+        );
+        let (circle, _) = body
+            .edges()
+            .find(|(_, e)| matches!(e.curve, AnyCurve::Circle(_)))
+            .expect("a circle");
+        let (a, b) = body.edge(circle).range;
+        let uses = body.edge_uses()[&circle].len();
+        let coedges = |body: &Body<World>| {
+            body.faces()
+                .map(|(_, f)| f.loops.iter().map(|l| l.coedges.len()).sum::<usize>())
+                .sum::<usize>()
+        };
+        let before = coedges(&body);
+        let (vertex, rest) = body.split_edge(circle, (a + b) / 2.0).unwrap();
+        assert_eq!(coedges(&body), before + uses);
+        assert_eq!(
+            (body.edge(circle).end, body.edge(rest).start),
+            (vertex, vertex)
+        );
+        assert_eq!(body.edge(rest).range, ((a + b) / 2.0, b));
+        assert_eq!(body.validate(1e-9), Ok(()));
+        assert_eq!(
+            body.split_edge(circle, b),
+            Err(TopologyError::BadRange(a, b))
+        );
+    }
 
     #[test]
     fn add_face_rejects_open_loops() {
