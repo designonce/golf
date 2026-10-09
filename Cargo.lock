@@ -117,6 +117,7 @@ dependencies = [
  "golf_geom",
  "golf_manifold",
  "golf_mesh",
+ "golf_nurbs",
  "golf_sketch",
  "nalgebra",
  "thiserror",

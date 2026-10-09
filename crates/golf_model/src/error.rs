@@ -18,6 +18,17 @@ pub enum ModelError {
     /// (spindle) torus.
     #[error("segment {index} would revolve to a spindle torus")]
     SpindleTorus { index: usize },
+    /// Lofted regions need the same number of holes, and each profile the
+    /// same number of segments as its counterpart.
+    #[error("lofted regions don't match segment for segment")]
+    LoftMismatch,
+    /// A loft's sketch planes face opposite ways along it, or it doesn't leave
+    /// the first plane.
+    #[error("lofted sketch planes must face the same way along the loft")]
+    LoftFacing,
+    /// Building NURBS geometry failed.
+    #[error("NURBS construction failed: {0}")]
+    Nurbs(String),
     #[error(transparent)]
     Topology(#[from] TopologyError),
 }

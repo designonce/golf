@@ -337,3 +337,123 @@ fn linear_and_circular_patterns() {
         assert!((centre(b) - expected).norm() < 1e-9, "{i}");
     }
 }
+
+#[test]
+fn loft_between_squares_is_a_frustum() {
+    let (a, b, h) = (2.0, 1.0, 3.0);
+    let bottom = Profile::rectangle(
+        Vector2::new(-a / 2.0, -a / 2.0),
+        Vector2::new(a / 2.0, a / 2.0),
+    )
+    .unwrap();
+    let top = Profile::rectangle(
+        Vector2::new(-b / 2.0, -b / 2.0),
+        Vector2::new(b / 2.0, b / 2.0),
+    )
+    .unwrap();
+    let base = tilted();
+    let raised = Placement::new(base.point(Vector3::new(0.0, 0.0, h)), base.rotation);
+    let body = golf_model::loft((&base, &bottom.into()), (&raised, &top.into())).unwrap();
+    assert_solid(&body, h / 3.0 * (a * a + a * b + b * b), 0);
+}
+
+#[test]
+fn loft_between_circles_is_exact() {
+    // Coaxial: a frustum of a cone. Offset sideways: the same volume
+    // (Cavalieri), through a skewed ruled surface.
+    let (r1, r2, h) = (2.0, 1.0, 3.0);
+    let base = tilted();
+    for shift in [0.0, 1.5] {
+        let raised = Placement::new(base.point(Vector3::new(shift, 0.0, h)), base.rotation);
+        let body = golf_model::loft(
+            (
+                &base,
+                &Profile::circle(Vector2::zeros(), r1).unwrap().into(),
+            ),
+            (
+                &raised,
+                &Profile::circle(Vector2::zeros(), r2).unwrap().into(),
+            ),
+        )
+        .unwrap();
+        assert_solid(&body, PI * h / 3.0 * (r1 * r1 + r1 * r2 + r2 * r2), 0);
+    }
+}
+
+#[test]
+fn twisted_loft_matches_the_prismatoid_formula() {
+    // A square to the same square turned 45°: ruled, so the prismatoid formula
+    // V = h/6 (A₀ + 4 A½ + A₁) is exact, the middle section being the polygon
+    // through the midpoints of matching corners.
+    let h = 2.0;
+    let square = |turn: f64| -> Vec<Vector2<f64>> {
+        (0..4)
+            .map(|i| {
+                let angle = turn + PI / 2.0 * i as f64 + PI / 4.0;
+                Vector2::new(angle.cos(), angle.sin())
+            })
+            .collect()
+    };
+    let (lower, upper) = (square(0.0), square(PI / 4.0));
+    let middle: Vec<Vector2<f64>> = lower
+        .iter()
+        .zip(&upper)
+        .map(|(a, b)| (a + b) / 2.0)
+        .collect();
+    let area = |p: &[Vector2<f64>]| {
+        (0..p.len())
+            .map(|i| p[i].perp(&p[(i + 1) % p.len()]))
+            .sum::<f64>()
+            / 2.0
+    };
+    let volume = h / 6.0 * (area(&lower) + 4.0 * area(&middle) + area(&upper));
+    let base = tilted();
+    let raised = Placement::new(base.point(Vector3::new(0.0, 0.0, h)), base.rotation);
+    let body = golf_model::loft(
+        (&base, &Profile::polygon(&lower).unwrap().into()),
+        (&raised, &Profile::polygon(&upper).unwrap().into()),
+    )
+    .unwrap();
+    assert_solid(&body, volume, 0);
+}
+
+#[test]
+fn loft_with_a_hole_and_arcs() {
+    // A slot with a round hole, lofted to a smaller copy of itself.
+    let shape = |scale: f64| {
+        let slot = Profile::builder(Vector2::new(-1.0, -1.0) * scale)
+            .line_to(Vector2::new(1.0, -1.0) * scale)
+            .arc_to(
+                Vector2::new(1.0, 1.0) * scale,
+                Vector2::new(1.0, 0.0) * scale,
+                true,
+            )
+            .line_to(Vector2::new(-1.0, 1.0) * scale)
+            .arc_to(
+                Vector2::new(-1.0, -1.0) * scale,
+                Vector2::new(-1.0, 0.0) * scale,
+                true,
+            )
+            .close()
+            .unwrap();
+        Region::new(
+            slot,
+            vec![Profile::circle(Vector2::zeros(), 0.5 * scale).unwrap()],
+        )
+    };
+    let (h, s) = (2.0, 0.5);
+    let base = tilted();
+    let raised = Placement::new(base.point(Vector3::new(0.0, 0.0, h)), base.rotation);
+    let body = golf_model::loft((&base, &shape(1.0)), (&raised, &shape(s))).unwrap();
+    // Similar sections scaling linearly: V = h · A₀ · (1 + s + s²)/3.
+    let area = 4.0 + PI - PI * 0.25;
+    assert_solid(&body, h * area * (1.0 + s + s * s) / 3.0, 1);
+    let mismatched = golf_model::loft(
+        (
+            &base,
+            &Profile::circle(Vector2::zeros(), 1.0).unwrap().into(),
+        ),
+        (&raised, &shape(1.0)),
+    );
+    assert!(matches!(mismatched, Err(ModelError::LoftMismatch)));
+}
