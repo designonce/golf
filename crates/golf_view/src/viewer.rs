@@ -84,7 +84,7 @@ impl Viewer {
             target: (lo + hi) / 2.0,
             yaw: -1.0,
             pitch: 0.5,
-            height: (hi - lo).length().max(1e-3) * 1.2,
+            size: (hi - lo).length().max(1e-3) * 1.1,
             // Far enough to keep everything in view while panning.
             reach: (hi - lo).length().max(1e-3) * 10.0,
         };
