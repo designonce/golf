@@ -15,7 +15,10 @@ use nalgebra::Vector2;
 use crate::error::HealIssue;
 use crate::pcurve::fit;
 use crate::pcurve::shifted;
+use crate::seam::add_outer;
+use crate::seam::align_holes;
 use crate::seam::insert_seam;
+use crate::seam::needs_outer;
 use crate::seam::needs_seam;
 
 /// How many times the tolerance an edge may stray from its face's surface
@@ -82,6 +85,28 @@ pub fn heal<S: Space<3>>(body: &mut Body<S>, options: &HealOptions) -> HealRepor
             }
             Err(reason) => report.issues.push(HealIssue::NoSeam { face, reason }),
         }
+    }
+    // Faces round both poles of a sphere-like surface, bounded only by holes,
+    // given the outer loop they lack.
+    for face in body.faces().map(|(id, _)| id).collect::<Vec<_>>() {
+        if !needs_outer(body, face) {
+            continue;
+        }
+        match add_outer(body, face) {
+            Ok(()) => {
+                report.seams += 1;
+                let mut again = HealReport::default();
+                heal_face(body, face, options, &mut again);
+                report.computed += again.computed;
+                report.moved += again.moved;
+                report.issues.extend(again.issues);
+            }
+            Err(reason) => report.issues.push(HealIssue::NoSeam { face, reason }),
+        }
+    }
+    // Holes in the same periods as their outlines.
+    for face in body.faces().map(|(id, _)| id).collect::<Vec<_>>() {
+        report.moved += align_holes(body, face);
     }
     report
 }
