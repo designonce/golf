@@ -55,7 +55,7 @@ pub(crate) fn triangulate<M: MeshSource>(
     // Delaunay triangles are only well shaped if parameter distances are
     // roughly surface distances, so scale each axis by its average speed.
     let scale = axis_scale::<M>(surface, loops);
-    let to_cdt = |uv: Vector2<f64>| Point2::new(uv.x * scale.x, uv.y * scale.y);
+    let to_cdt = |uv: Vector2<f64>| cdt_point(uv.component_mul(&scale));
     let to_uv = |p: Point2<f64>| Vector2::new(p.x / scale.x, p.y / scale.y);
 
     let mut cdt = Cdt::new();
@@ -465,7 +465,7 @@ fn seed_interior<M: MeshSource>(
         for i in 1..count {
             let uv = Vector2::new(lo.x + range.x * i as f64 / count as f64, v);
             if inside_even_odd(&polygons, uv) && !crowded(scaled(uv), spacing) {
-                cdt.insert(Point2::new(uv.x * scale.x, uv.y * scale.y))?;
+                cdt.insert(cdt_point(uv.component_mul(&scale)))?;
             }
         }
     }
@@ -488,4 +488,12 @@ fn inside_even_odd(polygons: &[Vec<Vector2<f64>>], p: Vector2<f64>) -> bool {
         }
     }
     inside
+}
+
+/// A point for the triangulation, with negligible coordinates made exactly
+/// zero: rotations leave values like 1e-50 where zero belongs, and spade
+/// rejects anything that small that isn't zero.
+fn cdt_point(p: Vector2<f64>) -> Point2<f64> {
+    let snap = |x: f64| if x.abs() < 1e-30 { 0.0 } else { x };
+    Point2::new(snap(p.x), snap(p.y))
 }
