@@ -377,6 +377,9 @@ fn compute<S: Space<3>>(
 ) -> Option<(AnyCurve2<FaceUv<S>>, f64)> {
     const INITIAL: usize = 16;
     const MAX_DEPTH: usize = 16;
+    // Enough for any edge a tolerance can need; a bound on the cost of one
+    // that can't be followed.
+    const MAX_SAMPLES: usize = 4096;
     let domain = surface.domain();
     let (from, to) = if backwards {
         (t_end, t_start)
@@ -385,7 +388,7 @@ fn compute<S: Space<3>>(
     };
     let point = |t: f64| curve.apply(Point::new([t].into())).coords;
     let raise = |uv: Vector2<f64>| surface.apply(Point::new(uv)).coords;
-    let project = |t: f64, hint: Option<Vector2<f64>>| -> Option<Vector2<f64>> {
+    let project_from = |t: f64, hint: Option<Vector2<f64>>| -> Option<Vector2<f64>> {
         let hint = hint.map(Point::<FaceUv<S>, 2>::new);
         let uv = surface
             .project(
@@ -398,6 +401,31 @@ fn compute<S: Space<3>>(
             None => uv,
         };
         Some(clamp(&domain, uv.coords)).filter(|uv| uv.iter().all(|x| x.is_finite()))
+    };
+
+    // From the hint, or, if that lands well off the curve (on another fold of
+    // the surface, say), from wherever is nearest overall.
+    let project = |t: f64, hint: Option<Vector2<f64>>| -> Option<Vector2<f64>> {
+        let target = point(t);
+        let miss = |uv: Vector2<f64>| (raise(uv) - target).norm();
+        let hinted = project_from(t, hint);
+        match hinted {
+            Some(uv) if hint.is_none() || miss(uv) <= OFF_SURFACE * tolerance => Some(uv),
+            _ => {
+                let fresh = project_from(t, None).map(|uv| match hint {
+                    Some(h) => {
+                        domain
+                            .unwrap_near(Point::<FaceUv<S>, 2>::new(uv), Point::new(h))
+                            .coords
+                    }
+                    None => uv,
+                });
+                match (hinted, fresh) {
+                    (Some(a), Some(b)) => Some(if miss(b) < miss(a) { b } else { a }),
+                    (a, b) => a.or(b),
+                }
+            }
+        }
     };
 
     // Samples in the order walked, each projected from the one before.
@@ -420,7 +448,7 @@ fn compute<S: Space<3>>(
         out: &mut Vec<(f64, Vector2<f64>)>,
     ) -> Option<()> {
         match split(a, b)? {
-            Some(m) if depth < MAX_DEPTH => {
+            Some(m) if depth < MAX_DEPTH && out.len() < MAX_SAMPLES => {
                 refine(a, m, depth + 1, split, out)?;
                 refine(m, b, depth + 1, split, out)
             }
