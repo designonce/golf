@@ -50,7 +50,9 @@ name = "golf_assembly"
 version = "0.1.0"
 dependencies = [
  "golf_brep",
+ "golf_color",
  "golf_export_step",
+ "golf_frame",
  "golf_geom",
  "golf_manifold",
  "golf_model",
@@ -62,7 +64,7 @@ dependencies = [
 name = "golf_brep"
 version = "0.1.0"
 dependencies = [
- "golf_export_step",
+ "golf_color",
  "golf_frame",
  "golf_geom",
  "golf_manifold",
@@ -72,11 +74,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "golf_color"
+version = "0.1.0"
+dependencies = [
+ "thiserror",
+]
+
+[[package]]
 name = "golf_export_step"
 version = "0.1.0"
 dependencies = [
+ "golf_assembly",
+ "golf_brep",
+ "golf_color",
+ "golf_frame",
  "golf_geom",
  "golf_manifold",
+ "golf_model",
  "golf_nurbs",
  "nalgebra",
  "thiserror",
