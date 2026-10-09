@@ -457,3 +457,199 @@ fn loft_with_a_hole_and_arcs() {
     );
     assert!(matches!(mismatched, Err(ModelError::LoftMismatch)));
 }
+
+mod treated {
+    use golf_model::EdgeTreatment;
+    use golf_model::ExtrudeEnds;
+    use golf_model::extrude_drafted;
+    use golf_model::extrude_with;
+
+    use super::*;
+
+    /// The area a quarter-round fillet of radius r removes from a right-angled
+    /// corner, and its first moment about the outer side (area · centroid
+    /// distance in from it).
+    fn fillet_section(r: f64) -> (f64, f64) {
+        (r * r * (1.0 - PI / 4.0), r.powi(3) * (5.0 / 6.0 - PI / 4.0))
+    }
+
+    #[test]
+    fn box_with_a_filleted_top_meets_in_mitres() {
+        // The rounding swept round the rectangle with mitred corners:
+        // removed volume = section area · length of the path its centroid takes.
+        let (a, b, h, r) = (4.0, 3.0, 2.0, 0.5);
+        let rectangle = Profile::rectangle(Vector2::zeros(), Vector2::new(a, b)).unwrap();
+        let ends = ExtrudeEnds {
+            bottom: EdgeTreatment::None,
+            top: EdgeTreatment::Fillet(r),
+        };
+        let body = extrude_with(&tilted(), &rectangle.into(), h, ends).unwrap();
+        let (area, moment) = fillet_section(r);
+        let removed = area * 2.0 * (a + b) - 8.0 * moment;
+        assert_solid(&body, a * b * h - removed, 0);
+    }
+
+    #[test]
+    fn box_with_a_chamfered_top() {
+        let (a, b, h, d) = (4.0, 3.0, 2.0, 0.5);
+        let rectangle = Profile::rectangle(Vector2::zeros(), Vector2::new(a, b)).unwrap();
+        let ends = ExtrudeEnds {
+            bottom: EdgeTreatment::None,
+            top: EdgeTreatment::chamfer(d),
+        };
+        let body = extrude_with(&tilted(), &rectangle.into(), h, ends).unwrap();
+        let slab = d / 6.0 * (a * b + 4.0 * (a - d) * (b - d) + (a - 2.0 * d) * (b - 2.0 * d));
+        assert_solid(&body, a * b * (h - d) + slab, 0);
+    }
+
+    #[test]
+    fn rounded_cuboid_has_spherical_corners() {
+        // Steiner: the inner box grown by r.
+        let (size, r) = (Vector3::new(4.0, 3.0, 2.0), 0.5);
+        let body = primitives::rounded_cuboid(&tilted(), size, r).unwrap();
+        let (p, q, s) = (size.x - 2.0 * r, size.y - 2.0 * r, size.z - 2.0 * r);
+        let volume = p * q * s
+            + 2.0 * (p * q + q * s + s * p) * r
+            + PI * r * r * (p + q + s)
+            + 4.0 / 3.0 * PI * r.powi(3);
+        assert_eq!(body.faces().len(), 6 + 12 + 8);
+        assert_solid(&body, volume, 0);
+    }
+
+    #[test]
+    fn chamfered_cuboid() {
+        // An octagon (the rectangle with chamfered corners) with chamfered ends.
+        // Mitred insets of a polygon have area A − Pδ + cδ², c = Σ tan(turn/2).
+        let (a, b, h, d) = (4.0, 3.0, 2.0, 0.4);
+        let body = primitives::chamfered_cuboid(&tilted(), Vector3::new(a, b, h), d).unwrap();
+        let (area, perimeter) = (
+            a * b - 2.0 * d * d,
+            2.0 * (a + b) - 8.0 * d + 4.0 * 2f64.sqrt() * d,
+        );
+        let c = 8.0 * (PI / 8.0).tan();
+        let inset = |delta: f64| area - perimeter * delta + c * delta * delta;
+        let slab = d / 6.0 * (inset(0.0) + 4.0 * inset(d / 2.0) + inset(d));
+        assert_solid(&body, area * (h - 2.0 * d) + 2.0 * slab, 0);
+    }
+
+    #[test]
+    fn puck_with_rounded_edges() {
+        // Pappus: each fillet removes its section swept round the circle its
+        // centroid is on.
+        let (radius, h, r) = (3.0, 2.0, 0.5);
+        let disc = Profile::circle(Vector2::zeros(), radius).unwrap();
+        let body = extrude_with(
+            &tilted(),
+            &disc.into(),
+            h,
+            ExtrudeEnds::both(EdgeTreatment::Fillet(r)),
+        )
+        .unwrap();
+        let (area, moment) = fillet_section(r);
+        let removed = 2.0 * 2.0 * PI * (radius * area - moment);
+        assert_solid(&body, PI * radius * radius * h - removed, 0);
+    }
+
+    #[test]
+    fn ring_with_rounded_edges_inside_and_out() {
+        // The hole's edge is concave: its fillets sweep tori outside the tube.
+        let (outer, inner, h, r) = (3.0, 1.5, 2.0, 0.4);
+        let region = Region::new(
+            Profile::circle(Vector2::zeros(), outer).unwrap(),
+            vec![Profile::circle(Vector2::zeros(), inner).unwrap()],
+        );
+        let body = extrude_with(
+            &tilted(),
+            &region,
+            h,
+            ExtrudeEnds::both(EdgeTreatment::Fillet(r)),
+        )
+        .unwrap();
+        let (area, moment) = fillet_section(r);
+        let removed = 2.0 * 2.0 * PI * ((outer * area - moment) + (inner * area + moment));
+        assert_solid(&body, PI * (outer * outer - inner * inner) * h - removed, 1);
+    }
+
+    #[test]
+    fn drafted_extrusions_are_frusta() {
+        let (a, h, draft) = (4.0, 2.0, 0.2);
+        let square = Profile::rectangle(Vector2::zeros(), Vector2::new(a, a)).unwrap();
+        let body = extrude_drafted(&tilted(), &square.into(), h, draft).unwrap();
+        let b = a - 2.0 * h * draft.tan();
+        assert_solid(&body, h / 3.0 * (a * a + a * b + b * b), 0);
+
+        let (r1, r2) = (2.0, 2.0 + h * 0.3f64.tan());
+        let disc = Profile::circle(Vector2::zeros(), r1).unwrap();
+        let body = extrude_drafted(&tilted(), &disc.into(), h, -0.3).unwrap();
+        assert_solid(&body, PI * h / 3.0 * (r1 * r1 + r1 * r2 + r2 * r2), 0);
+    }
+
+    #[test]
+    fn treatments_check_their_inputs() {
+        let square =
+            || Region::from(Profile::rectangle(Vector2::zeros(), Vector2::new(2.0, 2.0)).unwrap());
+        let tall = ExtrudeEnds::both(EdgeTreatment::Fillet(0.6));
+        assert_eq!(
+            extrude_with(&tilted(), &square(), 1.0, tall).unwrap_err(),
+            ModelError::TreatmentsTooTall
+        );
+        let wide = ExtrudeEnds {
+            bottom: EdgeTreatment::None,
+            top: EdgeTreatment::chamfer(1.5),
+        };
+        assert!(matches!(
+            extrude_with(&tilted(), &square(), 3.0, wide),
+            Err(ModelError::InsetCollapses { .. })
+        ));
+        // A sharp corner between a line and an arc.
+        let d = Profile::builder(Vector2::zeros())
+            .line_to(Vector2::new(2.0, 0.0))
+            .arc_to(Vector2::zeros(), Vector2::new(1.0, 0.0), true)
+            .close()
+            .unwrap();
+        let top = ExtrudeEnds {
+            bottom: EdgeTreatment::None,
+            top: EdgeTreatment::Fillet(0.1),
+        };
+        assert!(matches!(
+            extrude_with(&tilted(), &d.into(), 1.0, top),
+            Err(ModelError::UnsupportedCorner { .. })
+        ));
+        // A fillet between half the arc's radius and all of it.
+        let disc = Region::from(Profile::circle(Vector2::zeros(), 1.0).unwrap());
+        let top = ExtrudeEnds {
+            bottom: EdgeTreatment::None,
+            top: EdgeTreatment::Fillet(0.7),
+        };
+        assert!(matches!(
+            extrude_with(&tilted(), &disc, 2.0, top),
+            Err(ModelError::FilletTooLarge { .. })
+        ));
+    }
+}
+
+#[test]
+fn revolving_about_any_axis_in_the_sketch() {
+    // Pappus again: volume = angle · area · distance from the axis to the
+    // centroid.
+    let rectangle = || {
+        Region::from(Profile::rectangle(Vector2::new(3.0, 0.0), Vector2::new(4.0, 1.0)).unwrap())
+    };
+    // About the upright line x = 1: the centroid is 2.5 away.
+    let body = golf_model::revolve_about(
+        &tilted(),
+        &rectangle(),
+        Vector2::new(1.0, 0.0),
+        Vector2::y(),
+        2.0 * PI,
+    )
+    .unwrap();
+    assert_solid(&body, 2.0 * PI * 1.0 * 2.5, 1);
+    // About a sloping line with the region on its left, through half a turn.
+    let (point, direction): (Vector2<f64>, Vector2<f64>) =
+        (Vector2::new(5.0, -2.0), Vector2::new(1.0, 2.0));
+    let centroid = Vector2::new(3.5, 0.5);
+    let distance = (centroid - point).perp(&direction.normalize()).abs();
+    let body = golf_model::revolve_about(&tilted(), &rectangle(), point, direction, PI).unwrap();
+    assert_solid(&body, PI * 1.0 * distance, 0);
+}

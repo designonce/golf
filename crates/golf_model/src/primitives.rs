@@ -12,6 +12,9 @@ use golf_sketch::Segment;
 use nalgebra::Vector2;
 use nalgebra::Vector3;
 
+use crate::ends::EdgeTreatment;
+use crate::ends::ExtrudeEnds;
+use crate::ends::extrude_with;
 use crate::error::ModelError;
 use crate::extrude::extrude;
 use crate::revolve::revolve;
@@ -24,6 +27,38 @@ pub fn cuboid<S: Space<3>>(
 ) -> Result<Body<S>, ModelError> {
     let base = Profile::rectangle(Vector2::zeros(), size.xy())?;
     extrude(placement, &base.into(), size.z)
+}
+
+/// A box like [`cuboid`] with every edge rounded to `radius` (at most half the
+/// smallest side): its corners are spherical.
+pub fn rounded_cuboid<S: Space<3>>(
+    placement: &Placement<S>,
+    size: Vector3<f64>,
+    radius: f64,
+) -> Result<Body<S>, ModelError> {
+    let base = Profile::rounded_rectangle(Vector2::zeros(), size.xy(), radius)?;
+    extrude_with(
+        placement,
+        &base.into(),
+        size.z,
+        ExtrudeEnds::both(EdgeTreatment::Fillet(radius)),
+    )
+}
+
+/// A box like [`cuboid`] with every edge chamfered by `distance`: the upright
+/// edges in the sketch, then the ends, mitred where they meet.
+pub fn chamfered_cuboid<S: Space<3>>(
+    placement: &Placement<S>,
+    size: Vector3<f64>,
+    distance: f64,
+) -> Result<Body<S>, ModelError> {
+    let base = Profile::rectangle(Vector2::zeros(), size.xy())?.chamfer_all(distance)?;
+    extrude_with(
+        placement,
+        &base.into(),
+        size.z,
+        ExtrudeEnds::both(EdgeTreatment::chamfer(distance)),
+    )
 }
 
 /// A cylinder about the placement's local z axis, from its origin up to

@@ -18,6 +18,25 @@ pub enum ModelError {
     /// (spindle) torus.
     #[error("segment {index} would revolve to a spindle torus")]
     SpindleTorus { index: usize },
+    /// Edge treatments and drafts follow the profile round, so a sharp corner
+    /// must be between two lines.
+    #[error("corner {index} is sharp and not between two lines; fillet it in the sketch first")]
+    UnsupportedCorner { index: usize },
+    /// Insetting the profile (for a draft, chamfer or fillet) shrinks a segment
+    /// to nothing or turns it inside out.
+    #[error("insetting the profile collapses segment {index}")]
+    InsetCollapses { index: usize },
+    /// A fillet round a convex arc must be no larger than the arc's radius, or
+    /// exactly equal (a spherical corner), not in between.
+    #[error("the fillet is too large for arc {index}")]
+    FilletTooLarge { index: usize },
+    /// A chamfer or fillet needs positive, finite sizes; a draft must be less
+    /// than a right angle.
+    #[error("invalid edge treatment or draft")]
+    BadTreatment,
+    /// The end treatments reach further than the extrusion is tall.
+    #[error("the end treatments are taller than the extrusion")]
+    TreatmentsTooTall,
     /// Lofted regions need the same number of holes, and each profile the
     /// same number of segments as its counterpart.
     #[error("lofted regions don't match segment for segment")]

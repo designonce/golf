@@ -245,6 +245,48 @@ pub fn revolve_by<S: Space<3>>(
     Ok(body)
 }
 
+/// [`revolve_by`] about any axis in the sketch: the line through `axis_point`
+/// along `axis_direction` (sketch coordinates), turning anticlockwise about
+/// `axis_direction`.
+///
+/// The region must lie wholly to one side of the axis.
+pub fn revolve_about<S: Space<3>>(
+    plane: &Placement<S>,
+    region: &Region,
+    axis_point: Vector2<f64>,
+    axis_direction: Vector2<f64>,
+    angle: f64,
+) -> Result<Body<S>, ModelError> {
+    let along = axis_direction
+        .try_normalize(f64::MIN_POSITIVE)
+        .ok_or(ModelError::BadAngle(angle))?;
+    // Sketch coordinates with the axis as y: x the distance across it, on
+    // whichever side the region is.
+    let right = Vector2::new(along.y, -along.x);
+    let side = region
+        .profiles()
+        .flat_map(|p| p.segments())
+        .map(|s| (s.at(0.5) - axis_point).dot(&right))
+        .sum::<f64>()
+        .signum();
+    let across = right * side;
+    // The same change of coordinates on the region: move the axis point to
+    // the origin, turn the axis onto y, and mirror if the region was on the
+    // left.
+    let turn = PI / 2.0 - along.y.atan2(along.x);
+    let mut moved = region
+        .translated(-axis_point)
+        .rotated(turn, Vector2::zeros());
+    if side < 0.0 {
+        moved = moved.mirrored(Vector2::zeros(), Vector2::y());
+    }
+    let origin = plane.point(Vector3::new(axis_point.x, axis_point.y, 0.0));
+    let x = plane.vector(Vector3::new(across.x, across.y, 0.0));
+    let y = plane.vector(Vector3::new(along.x, along.y, 0.0));
+    let z = golf_manifold::Vector::with_tag(x.coords.cross(&y.coords), origin.tag());
+    revolve_by(&Placement::from_axes(origin, z, x), &moved, angle)
+}
+
 /// A profile segment as an edge in the profile plane of `frame`, from the
 /// vertices `along` gives for its direction along the curve.
 fn profile_edge<S: Space<3>>(

@@ -12,13 +12,19 @@
 //! Operations that need booleans (pockets, bosses onto existing bodies,
 //! fillets) aren't here yet.
 
+mod ends;
 mod error;
 mod extrude;
 mod loft;
 mod pattern;
 pub mod primitives;
 mod revolve;
+mod stack;
 
+pub use ends::EdgeTreatment;
+pub use ends::ExtrudeEnds;
+pub use ends::extrude_drafted;
+pub use ends::extrude_with;
 pub use error::ModelError;
 pub use extrude::extrude;
 // The sketch types, for convenience.
@@ -31,4 +37,5 @@ pub use loft::loft;
 pub use pattern::circular_pattern;
 pub use pattern::linear_pattern;
 pub use revolve::revolve;
+pub use revolve::revolve_about;
 pub use revolve::revolve_by;
