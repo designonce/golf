@@ -60,3 +60,13 @@ categories.workspace = true
 workspace = true
 
 [dependencies]
+
+# Geometry code is numeric and generic: unoptimised (nalgebra's generics are
+# compiled into our crates too) meshing runs about thirty times slower, which
+# makes examples and tests crawl. A light opt-level for our crates and a full
+# one for dependencies keeps dev builds quick to run and still quick to build.
+[profile.dev]
+opt-level = 1
+
+[profile.dev.package."*"]
+opt-level = 3
