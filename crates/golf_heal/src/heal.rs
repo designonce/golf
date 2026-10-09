@@ -15,7 +15,6 @@ use nalgebra::Vector2;
 use crate::error::HealIssue;
 use crate::pcurve::fit;
 use crate::pcurve::shifted;
-use crate::seam::SeamError;
 use crate::seam::insert_seam;
 use crate::seam::needs_seam;
 
@@ -81,14 +80,7 @@ pub fn heal<S: Space<3>>(body: &mut Body<S>, options: &HealOptions) -> HealRepor
                 report.moved += again.moved;
                 report.issues.extend(again.issues);
             }
-            Err(error) => report.issues.push(HealIssue::NoSeam {
-                face,
-                reason: match error {
-                    SeamError::NoPcurves => "some of its coedges have no pcurve",
-                    SeamError::Unhandled => "its loops wrap in a way this can't cut",
-                    SeamError::NoIsoCurve => "its surface has no exact seam curve",
-                },
-            }),
+            Err(reason) => report.issues.push(HealIssue::NoSeam { face, reason }),
         }
     }
     report
@@ -501,12 +493,12 @@ fn max_error<S: Space<3>>(
 
 #[cfg(test)]
 mod tests {
-    use nalgebra::Vector3;
     use golf_geom::Placement;
     use golf_manifold::World;
     use golf_mesh::Tolerance;
     use golf_mesh::mesh;
     use golf_model::primitives;
+    use nalgebra::Vector3;
 
     use super::*;
 
