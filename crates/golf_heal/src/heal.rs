@@ -160,7 +160,7 @@ fn heal_loop<S: Space<3>>(
         // Across a pole, the previous coedge's end says nothing about where
         // this one starts; it's settled from the next one instead.
         let hint = previous_end.filter(|&uv| !singular(uv));
-        if previous_end.is_some() && hint.is_none() && accurate.is_none() {
+        if previous_end.is_some() && hint.is_none() {
             deferred.push(i);
             previous_end = None;
             continue;
@@ -197,7 +197,14 @@ fn heal_loop<S: Space<3>>(
     }
     // Deferred coedges, last first, each seeded from the start of the next.
     for &i in deferred.iter().rev() {
-        let (edge, curve, (t_start, t_end), _) = &uses[i];
+        let (edge, curve, (t_start, t_end), accurate) = &uses[i];
+        let next_start = settled[(i + 1) % n].as_ref().map(|s| s.start);
+        if let Some(pcurve) = accurate {
+            // Moved by whole periods to end where the next coedge starts.
+            let pcurve = align_end(pcurve, *t_end, next_start, &domain, report);
+            settled[i] = Some(settle(pcurve, (*t_start, *t_end)));
+            continue;
+        }
         if let Some(partner) = seam_partner(&uses, &settled, i) {
             if let Some(pcurve) = across_seam(partner, same_sense, &domain) {
                 report.computed += 1;
@@ -205,7 +212,6 @@ fn heal_loop<S: Space<3>>(
                 continue;
             }
         }
-        let next_start = settled[(i + 1) % n].as_ref().map(|s| s.start);
         match compute(
             &surface,
             curve,
@@ -299,6 +305,33 @@ fn align<S: Space<3>>(
 ) -> AnyCurve2<FaceUv<S>> {
     let start = pcurve.apply(Point::new([t_start].into())).coords;
     let shift = hint.map_or(Vector2::zeros(), |h| period_shift(start, h, domain));
+    if shift == Vector2::zeros() {
+        report.kept += 1;
+        return pcurve.clone();
+    }
+    match shifted(pcurve, shift) {
+        Some(moved) => {
+            report.moved += 1;
+            moved
+        }
+        None => {
+            report.kept += 1;
+            pcurve.clone()
+        }
+    }
+}
+
+/// An accurate pcurve, moved by whole periods to end where the loop goes
+/// next.
+fn align_end<S: Space<3>>(
+    pcurve: &AnyCurve2<FaceUv<S>>,
+    t_end: f64,
+    next: Option<Vector2<f64>>,
+    domain: &Domain<2>,
+    report: &mut HealReport,
+) -> AnyCurve2<FaceUv<S>> {
+    let end = pcurve.apply(Point::new([t_end].into())).coords;
+    let shift = next.map_or(Vector2::zeros(), |h| period_shift(end, h, domain));
     if shift == Vector2::zeros() {
         report.kept += 1;
         return pcurve.clone();
