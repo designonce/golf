@@ -12,6 +12,6 @@ pub enum HealIssue {
         edge: EdgeId,
         distance: f64,
     },
-    #[error("loop {loop_index} of {face} doesn't close in parameter space: the face needs a seam")]
-    OpenInParameters { face: FaceId, loop_index: usize },
+    #[error("{face} wraps round its surface but couldn't be cut open: {reason}")]
+    NoSeam { face: FaceId, reason: &'static str },
 }

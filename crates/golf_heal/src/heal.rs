@@ -16,6 +16,9 @@ use nalgebra::Vector3;
 use crate::error::HealIssue;
 use crate::pcurve::fit;
 use crate::pcurve::shifted;
+use crate::seam::SeamError;
+use crate::seam::insert_seam;
+use crate::seam::needs_seam;
 
 /// How closely healed geometry must agree.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -39,6 +42,9 @@ pub struct HealReport {
     pub moved: usize,
     /// Pcurves computed, where there were none or they were inaccurate.
     pub computed: usize,
+    /// Faces cut open with a seam, their loops having wrapped round a
+    /// periodic surface.
+    pub seams: usize,
     pub issues: Vec<HealIssue>,
 }
 
@@ -52,12 +58,48 @@ impl HealReport {
 pub fn heal<S: Space<3>>(body: &mut Body<S>, options: &HealOptions) -> HealReport {
     let mut report = HealReport::default();
     let faces: Vec<FaceId> = body.faces().map(|(id, _)| id).collect();
+    for &face in &faces {
+        heal_face(body, face, options, &mut report);
+    }
+    // Faces whose loops wrap round their surface, cut open with a seam and
+    // healed again. A seam can split an edge another face uses; its
+    // coedges keep their pcurves, which still fit.
     for face in faces {
-        for loop_index in 0..body.face(face).loops.len() {
-            heal_loop(body, face, loop_index, options, &mut report);
+        if !needs_seam(body, face) {
+            continue;
+        }
+        match insert_seam(body, face) {
+            Ok(()) => {
+                report.seams += 1;
+                let mut again = HealReport::default();
+                heal_face(body, face, options, &mut again);
+                report.computed += again.computed;
+                report.moved += again.moved;
+                report.issues.extend(again.issues);
+            }
+            Err(error) => report.issues.push(HealIssue::NoSeam {
+                face,
+                reason: match error {
+                    SeamError::NoPcurves => "some of its coedges have no pcurve",
+                    SeamError::Unhandled => "its loops wrap in a way this can't cut",
+                    SeamError::NoIsoCurve => "its surface has no exact seam curve",
+                },
+            }),
         }
     }
     report
+}
+
+/// Heals each loop of `face`, leaving wrapping loops to be cut open after.
+fn heal_face<S: Space<3>>(
+    body: &mut Body<S>,
+    face: FaceId,
+    options: &HealOptions,
+    report: &mut HealReport,
+) {
+    for loop_index in 0..body.face(face).loops.len() {
+        heal_loop(body, face, loop_index, options, report);
+    }
 }
 
 /// A coedge's pcurve, once settled, and its uv at the loop's start and end
@@ -178,25 +220,6 @@ fn heal_loop<S: Space<3>>(
         }
     }
 
-    // A loop must close in parameter space (but for jumps along a pole).
-    let ends: Vec<(Vector2<f64>, Vector2<f64>)> =
-        settled.iter().flatten().map(|s| (s.start, s.end)).collect();
-    if ends.len() == n {
-        let opens = (0..n).any(|i| {
-            let (end, next) = (ends[i].1, ends[(i + 1) % n].0);
-            // A jump of half a period or more: the loop went round the
-            // surface instead of enclosing part of it.
-            !singular(end)
-                && domain.axes.iter().enumerate().any(|(k, axis)| {
-                    axis.periodic && (end[k] - next[k]).abs() > (axis.max - axis.min) / 2.0
-                })
-        });
-        if opens {
-            report
-                .issues
-                .push(HealIssue::OpenInParameters { face, loop_index });
-        }
-    }
     for (i, s) in settled.into_iter().enumerate() {
         if let Some(s) = s {
             body.set_pcurve(face, loop_index, i, Some(s.pcurve));
@@ -477,6 +500,7 @@ mod tests {
             let mut bare = stripped(&body);
             let report = heal(&mut bare, &HealOptions::default());
             assert!(report.is_clean(), "{index}: {:?}", report.issues);
+            assert_eq!(report.seams, 0, "{index}");
             assert_eq!(report.kept, 0);
             assert_eq!(bare.validate(1e-6), Ok(()));
             let healed = mesh(&bare, &tolerance).unwrap();
