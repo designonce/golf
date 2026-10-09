@@ -267,6 +267,7 @@ impl Reader<'_> {
             self.heal.kept += report.kept;
             self.heal.moved += report.moved;
             self.heal.computed += report.computed;
+            self.heal.seams += report.seams;
             self.heal.issues.extend(report.issues);
         }
         Ok(body)
