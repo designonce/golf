@@ -1,0 +1,27 @@
+[package]
+name = "golf_view"
+description = "A minimal Bevy viewer for golf meshes"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[dependencies]
+bevy.workspace = true
+golf_color.workspace = true
+golf_manifold.workspace = true
+golf_mesh.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+golf_brep.workspace = true
+golf_geom.workspace = true
+golf_model.workspace = true
+nalgebra.workspace = true
+
+[lints]
+workspace = true
