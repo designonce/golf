@@ -30,6 +30,10 @@ pub enum ModelError {
     /// exactly equal (a spherical corner), not in between.
     #[error("the fillet is too large for arc {index}")]
     FilletTooLarge { index: usize },
+    /// A pipe's arcs must be wider than the pipe, and its lines long enough
+    /// for the mitres at their ends.
+    #[error("the pipe is too thick for path segment {index}")]
+    PipeTooThick { index: usize },
     /// A chamfer or fillet needs positive, finite sizes; a draft must be less
     /// than a right angle.
     #[error("invalid edge treatment or draft")]

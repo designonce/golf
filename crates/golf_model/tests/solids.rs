@@ -653,3 +653,89 @@ fn revolving_about_any_axis_in_the_sketch() {
     let body = golf_model::revolve_about(&tilted(), &rectangle(), point, direction, PI).unwrap();
     assert_solid(&body, PI * 1.0 * distance, 0);
 }
+
+mod pipes {
+    use golf_model::Path;
+    use golf_model::pipe;
+
+    use super::*;
+
+    #[test]
+    fn straight_and_bent_pipes() {
+        // A tube's volume is its section's area times its centre line's length
+        // (Pappus), round bends and mitres alike.
+        let r = 0.5;
+        let straight = Profile::builder(Vector2::zeros())
+            .line_to(Vector2::new(4.0, 0.0))
+            .path()
+            .unwrap();
+        assert_solid(&pipe(&tilted(), &straight, r).unwrap(), PI * r * r * 4.0, 0);
+
+        let bent = Profile::builder(Vector2::zeros())
+            .line_to(Vector2::new(3.0, 0.0))
+            .arc_to(Vector2::new(5.0, 2.0), Vector2::new(3.0, 2.0), true)
+            .line_to(Vector2::new(5.0, 4.0))
+            .arc_to(Vector2::new(7.0, 6.0), Vector2::new(7.0, 4.0), false)
+            .path()
+            .unwrap();
+        assert_solid(
+            &pipe(&tilted(), &bent, r).unwrap(),
+            PI * r * r * bent.length(),
+            0,
+        );
+
+        let mitred = Profile::builder(Vector2::zeros())
+            .line_to(Vector2::new(3.0, 0.0))
+            .line_to(Vector2::new(3.0, 3.0))
+            .line_to(Vector2::new(6.0, 5.0))
+            .path()
+            .unwrap();
+        assert_solid(
+            &pipe(&tilted(), &mitred, r).unwrap(),
+            PI * r * r * mitred.length(),
+            0,
+        );
+    }
+
+    #[test]
+    fn closed_paths_make_rings() {
+        let r = 0.4;
+        let stadium =
+            Path::from(Profile::slot(Vector2::zeros(), Vector2::new(4.0, 0.0), 2.0).unwrap());
+        assert_solid(
+            &pipe(&tilted(), &stadium, r).unwrap(),
+            PI * r * r * stadium.length(),
+            1,
+        );
+        let square =
+            Path::from(Profile::rectangle(Vector2::zeros(), Vector2::new(3.0, 3.0)).unwrap());
+        assert_solid(
+            &pipe(&tilted(), &square, r).unwrap(),
+            PI * r * r * square.length(),
+            1,
+        );
+    }
+
+    #[test]
+    fn pipes_too_thick_for_their_path() {
+        let tight = Profile::builder(Vector2::zeros())
+            .line_to(Vector2::new(1.0, 0.0))
+            .arc_to(Vector2::new(1.6, 0.6), Vector2::new(1.0, 0.6), true)
+            .path()
+            .unwrap();
+        assert!(matches!(
+            pipe(&tilted(), &tight, 0.7),
+            Err(ModelError::PipeTooThick { index: 1 })
+        ));
+        let short = Profile::builder(Vector2::zeros())
+            .line_to(Vector2::new(1.0, 0.0))
+            .line_to(Vector2::new(1.0, 0.2))
+            .line_to(Vector2::new(3.0, 0.2))
+            .path()
+            .unwrap();
+        assert!(matches!(
+            pipe(&tilted(), &short, 0.5),
+            Err(ModelError::PipeTooThick { .. })
+        ));
+    }
+}
