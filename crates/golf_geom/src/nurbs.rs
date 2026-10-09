@@ -189,22 +189,39 @@ impl<S: Space<3>> Embedding<2, 3> for NurbsSurface<S> {
         self.domain
     }
 
-    /// As [`NurbsCurve::project`], seeding from a grid of samples per pair of
-    /// knot spans.
+    /// Newton iteration from the hint, or else from each of the few nearest of
+    /// a grid of samples per pair of knot spans, keeping the closest result: a
+    /// surface that folds back can put the nearest sample on the wrong fold.
     fn project(
         &self,
         p: Point<S, 3>,
         hint: Option<Point<Self::From, 2>>,
     ) -> Result<Point<Self::From, 2>, ProjectError> {
-        let start = match hint {
-            Some(hint) => hint,
-            None => nearest(
-                self.samples()
-                    .map(|(u, v)| Point::new(SVector::from([u, v]))),
-                |uv| (self.apply(uv) - p).coords.norm_squared(),
-            ),
-        };
-        newton_project(self, p, start)
+        const SEEDS: usize = 4;
+        if let Some(hint) = hint {
+            return newton_project(self, p, hint);
+        }
+        let distance = |uv: Point<Self::From, 2>| (self.apply(uv) - p).coords.norm_squared();
+        let mut seeds: Vec<(f64, Point<Self::From, 2>)> = self
+            .samples()
+            .map(|(u, v)| Point::new(SVector::from([u, v])))
+            .map(|uv| (distance(uv), uv))
+            .collect();
+        seeds.sort_by(|a, b| a.0.total_cmp(&b.0));
+        let mut best: Option<(f64, Point<Self::From, 2>)> = None;
+        let mut error = ProjectError::Ambiguous;
+        for &(_, seed) in seeds.iter().take(SEEDS) {
+            match newton_project(self, p, seed) {
+                Ok(uv) => {
+                    let d = distance(uv);
+                    if best.is_none_or(|(b, _)| d < b) {
+                        best = Some((d, uv));
+                    }
+                }
+                Err(e) => error = e,
+            }
+        }
+        best.map(|(_, uv)| uv).ok_or(error)
     }
 }
 
