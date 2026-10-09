@@ -83,8 +83,15 @@ pub(crate) fn face_loops<M: MeshSource>(
                 });
             }
         }
-        points.dedup_by(|b, a| a.uv == b.uv);
-        if points.len() > 1 && points[0].uv == points[points.len() - 1].uv {
+        // The same vertex reached through a pcurve and through projection can
+        // land a rounding error apart; those are one point. (At a pole one
+        // vertex has genuinely different parameters, far apart.)
+        let same = |a: &BoundaryPoint, b: &BoundaryPoint| {
+            a.uv == b.uv
+                || (a.vertex == b.vertex && (a.uv - b.uv).norm() <= 1e-9 * (1.0 + a.uv.norm()))
+        };
+        points.dedup_by(|b, a| same(a, b));
+        if points.len() > 1 && same(&points[0], &points[points.len() - 1]) {
             points.pop();
         }
         let points = bridge_singular_bounds(&points, &domain);

@@ -100,9 +100,17 @@ impl<S: Space<3>> Embedding<2, 3> for Cone<S> {
         let d = self.placement.to_local(p);
         let (rho, slope) = (d.xy().norm(), self.half_angle.tan());
         let domain = self.domain();
-        let v = domain.axes[1].clamp(((rho - self.radius) * slope + d.z) / (1.0 + slope * slope));
-        let u = match rho <= 1e-15 * (d.norm() + self.radius) {
-            true if Some(v) == self.apex_height() => hint.map_or(0.0, |h| h.coords.x),
+        let mut v =
+            domain.axes[1].clamp(((rho - self.radius) * slope + d.z) / (1.0 + slope * slope));
+        // Rounding leaves points computed to be at the apex a hair off it, so
+        // both tests are relative.
+        let scale = 1e-12 * (1.0 + d.norm() + self.radius.abs());
+        let at_apex = self.apex_height().filter(|&apex| (v - apex).abs() <= scale);
+        let u = match rho <= scale {
+            true if at_apex.is_some() => {
+                v = at_apex.expect("checked");
+                hint.map_or(0.0, |h| h.coords.x)
+            }
             true => hint.ok_or(ProjectError::Ambiguous)?.coords.x,
             false => d.y.atan2(d.x),
         };
@@ -135,6 +143,19 @@ mod tests {
             2.0,
             half_angle,
         )
+    }
+
+    #[test]
+    fn apex_computed_with_rounding_projects_to_the_apex() {
+        let c = cone(0.4);
+        let apex = c.apex_height().unwrap();
+        // On the axis, a rounding error short of the apex (inside the domain),
+        // as an edge curve ending at the apex can leave it.
+        let axis = c.placement.vector(Vector3::z());
+        let p = c.apply(uv(0.3, apex)) + axis.scale(1e-14);
+        let q = c.project(p, None).unwrap();
+        assert_eq!(q.coords.y, apex);
+        assert!((c.apply(q) - p).coords.norm() < 1e-12);
     }
 
     #[test]
