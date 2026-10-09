@@ -37,6 +37,7 @@ mod line;
 mod nurbs;
 mod placement;
 mod plane;
+pub mod prelude;
 mod sphere;
 #[cfg(test)]
 mod testing;

@@ -1,5 +1,6 @@
 //! A hierarchy of rigid coordinate frames, and the transforms between them.
 
+pub mod prelude;
 mod tree;
 
 pub use tree::Frame;

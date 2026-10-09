@@ -25,6 +25,7 @@
 mod boundary;
 mod error;
 mod mesh;
+pub mod prelude;
 mod sample;
 mod source;
 mod tessellate;

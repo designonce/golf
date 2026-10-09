@@ -34,6 +34,7 @@ mod hollow;
 mod loft;
 mod pattern;
 mod pipe;
+pub mod prelude;
 pub mod primitives;
 mod revolve;
 mod stack;

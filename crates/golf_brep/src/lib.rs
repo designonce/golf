@@ -21,6 +21,7 @@ mod error;
 mod id;
 #[cfg(feature = "mesh")]
 mod mesh;
+pub mod prelude;
 mod primitives;
 mod transform;
 

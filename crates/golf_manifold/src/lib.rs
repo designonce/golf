@@ -12,6 +12,7 @@
 mod domain;
 mod manifold;
 mod mapping;
+pub mod prelude;
 mod space;
 
 pub use domain::Axis;

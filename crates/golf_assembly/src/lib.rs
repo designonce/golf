@@ -14,6 +14,7 @@
 mod assembly;
 mod error;
 mod id;
+pub mod prelude;
 
 pub use assembly::Assembly;
 pub use assembly::Node;

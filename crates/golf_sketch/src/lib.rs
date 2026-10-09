@@ -8,6 +8,7 @@ mod error;
 mod locus;
 mod offset;
 mod path;
+pub mod prelude;
 mod profile;
 mod region;
 mod segment;
