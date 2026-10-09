@@ -18,8 +18,6 @@
 mod body;
 mod entity;
 mod error;
-#[cfg(feature = "export_step")]
-mod export_step;
 mod id;
 #[cfg(feature = "mesh")]
 mod mesh;
@@ -35,6 +33,8 @@ pub use entity::Loop;
 pub use entity::Shell;
 pub use entity::Vertex;
 pub use error::TopologyError;
+/// Colours, for convenience.
+pub use golf_color::Color;
 pub use id::EdgeId;
 pub use id::FaceId;
 pub use id::ShellId;

@@ -7,13 +7,15 @@
 //! ```
 //!
 //! The cart is a tray, a handle and two axle groups (an axle and two wheels),
-//! so the wheel is defined once and placed four times. With `--flat`, every
+//! so the wheel is defined once and placed four times; the back axle is a copy
+//! of the front, coloured differently. With `--flat`, every
 //! placed part is written separately, moved into place, instead.
 
 use core::f64::consts::FRAC_PI_2;
 use std::error::Error;
 
 use golf_assembly::Assembly;
+use golf_color::Color;
 use golf_export_step::StepFile;
 use golf_export_step::StepOptions;
 use golf_geom::Placement;
@@ -44,7 +46,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     })?;
     match flat {
         false => {
-            cart.write_step(&mut file)?;
+            file.add_assembly(&cart)?;
         }
         true => {
             for (name, body) in cart.posed_bodies()? {
@@ -57,7 +59,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         let at = occurrence.placement * nalgebra::Point3::origin();
         println!(
             "{:<20} at ({:6.1}, {:6.1}, {:6.1})",
-            cart.occurrence_name(&occurrence),
+            cart.path_name(occurrence.frame),
             at.x,
             at.y,
             at.z
@@ -80,44 +82,49 @@ fn cart() -> Result<Assembly<World>, Box<dyn Error>> {
     );
     let tyre = Profile::circle(Vector2::zeros(), 15.0)?;
     let ends = ExtrudeEnds::both(EdgeTreatment::Fillet(2.5));
-    let wheel = cart.add_part("wheel", extrude_with(&origin, &tyre.into(), 8.0, ends)?);
+    let wheel = cart.add_part(
+        "wheel",
+        extrude_with(&origin, &tyre.into(), 8.0, ends)?.with_color(Color::rgb(30, 30, 30)),
+    );
     let axle = cart.add_part("axle", primitives::cylinder(&origin, 2.5, 69.0)?);
     let handle_path = Profile::builder(Vector2::zeros())
         .line_to(Vector2::new(0.0, 45.0))
         .tangent_arc_to(Vector2::new(-20.0, 65.0))
         .line_to(Vector2::new(-60.0, 65.0))
         .path()?;
-    let handle = cart.add_part("handle", pipe(&origin, &handle_path, 3.0)?);
+    let handle = cart.add_part(
+        "handle",
+        pipe(&origin, &handle_path, 3.0)?.with_color(Color::rgb(200, 30, 30)),
+    );
 
-    // An axle group: the axle along y, between a wheel at each end turned to
-    // face along it (clear of them by half a millimetre).
-    let along_y = UnitQuaternion::from_scaled_axis(Vector3::x() * -FRAC_PI_2);
-    let axle_group = cart.add_group("axle assembly");
-    cart.place(
-        axle_group,
-        axle,
-        Isometry3::from_parts(Translation3::new(0.0, 0.5, 0.0), along_y),
-    )?;
-    cart.place(
-        axle_group,
-        wheel,
-        Isometry3::from_parts(Translation3::new(0.0, -8.5, 0.0), along_y),
-    )?;
-    cart.place(
-        axle_group,
-        wheel,
-        Isometry3::from_parts(Translation3::new(0.0, 70.5, 0.0), along_y),
-    )?;
-
-    // The cart: the tray resting just above two axles, the handle standing
-    // behind it.
+    // The front axle group, under the tray: the axle along y, between a wheel
+    // at each end turned to face along it (clear of them by half a
+    // millimetre). The back axle is a copy.
     let root = cart.root();
-    cart.place(root, tray, Isometry3::translation(0.0, 0.0, 15.0))?;
-    cart.place(root, axle_group, Isometry3::translation(20.0, 0.0, 12.0))?;
-    cart.place(root, axle_group, Isometry3::translation(100.0, 0.0, 12.0))?;
-    // The handle's sketch stood up: its x along the cart, its y upwards.
+    let along_y = |y: f64| {
+        Isometry3::from_parts(
+            Translation3::new(0.0, y, 0.0),
+            UnitQuaternion::from_scaled_axis(Vector3::x() * -FRAC_PI_2),
+        )
+    };
+    let front = cart.add_group(
+        root,
+        "axle assembly",
+        Isometry3::translation(20.0, 0.0, 12.0),
+    )?;
+    cart.add_instance(front, axle, along_y(0.5))?;
+    cart.add_instance(front, wheel, along_y(-8.5))?;
+    cart.add_instance(front, wheel, along_y(70.5))?;
+    let back = cart.copy_group(front, root, Isometry3::translation(100.0, 0.0, 12.0))?;
+    // The back axle in steel blue, wheels and all.
+    cart.set_color(back, Some(Color::rgb(70, 110, 160)))?;
+
+    // The tray resting just above the axles, the handle standing behind it:
+    // its sketch stood up, x along the cart and y upwards.
+    let tray_frame = cart.add_instance(root, tray, Isometry3::translation(0.0, 0.0, 15.0))?;
+    cart.set_color(tray_frame, Some(Color::rgb(240, 200, 40)))?;
     let upright = UnitQuaternion::from_scaled_axis(Vector3::x() * FRAC_PI_2);
-    cart.place(
+    cart.add_instance(
         root,
         handle,
         Isometry3::from_parts(Translation3::new(124.0, 35.0, 46.0), upright),

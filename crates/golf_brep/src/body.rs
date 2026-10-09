@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 
+use golf_color::Color;
 use golf_geom::AnyCurve;
 use golf_geom::AnySurface;
 use golf_manifold::Embedding;
@@ -29,6 +30,8 @@ pub struct Body<S: Space<3>> {
     pub(super) edges: Vec<Edge<S>>,
     pub(super) faces: Vec<Face<S>>,
     pub(super) shells: Vec<Shell>,
+    /// The whole body's colour, which faces may override.
+    pub(super) color: Option<Color>,
 }
 
 impl<S: Space<3, Tag = ()>> Default for Body<S> {
@@ -52,7 +55,33 @@ impl<S: Space<3>> Body<S> {
             edges: Vec::new(),
             faces: Vec::new(),
             shells: Vec::new(),
+            color: None,
         }
+    }
+
+    /// The body's colour, if it has one.
+    pub fn color(&self) -> Option<Color> {
+        self.color
+    }
+
+    pub fn set_color(&mut self, color: Option<Color>) {
+        self.color = color;
+    }
+
+    /// The same body with its colour set, for building.
+    pub fn with_color(mut self, color: Color) -> Self {
+        self.color = Some(color);
+        self
+    }
+
+    /// The colour a face shows: its own, or else the body's.
+    pub fn face_color(&self, face: FaceId) -> Option<Color> {
+        self.face(face).color.or(self.color)
+    }
+
+    /// Gives one face its own colour, overriding the body's (or clears it).
+    pub fn set_face_color(&mut self, face: FaceId, color: Option<Color>) {
+        self.faces[face.index()].color = color;
     }
 
     pub fn tag(&self) -> S::Tag {
@@ -132,6 +161,7 @@ impl<S: Space<3>> Body<S> {
             surface,
             same_sense,
             loops,
+            color: None,
         });
         Ok(FaceId::new(self.faces.len() - 1))
     }

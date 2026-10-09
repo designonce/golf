@@ -7,13 +7,17 @@
 //! [`StepSurface`], which `golf_geom`'s types do, and which other geometry can
 //! implement with the [`Writer`].
 //!
-//! Bodies can be placed in assemblies with [`StepFile::add_assembly`], which
-//! nest and share parts and sub-assemblies.
+//! `golf_brep`'s [`Body`](golf_brep::Body) is a [`StepSource`], and a
+//! `golf_assembly` [`Assembly`](golf_assembly::Assembly) is written whole with
+//! [`StepFile::add_assembly`]. Products can also be grouped by hand with
+//! [`StepFile::add_group`], which nest and share parts and sub-assemblies.
 //!
 //! Coordinates are written as millimetres and angles as radians. Every body's
 //! coordinates are written as they are, so bodies in different frames should be
 //! brought into one first.
 
+mod assembly;
+mod body;
 mod error;
 mod file;
 mod geometry;

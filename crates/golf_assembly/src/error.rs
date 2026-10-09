@@ -1,6 +1,6 @@
+use golf_frame::FrameId;
 use golf_geom::TransformError;
 
-use crate::id::GroupId;
 use crate::id::PartId;
 
 /// Why an assembly operation failed.
@@ -9,13 +9,14 @@ use crate::id::PartId;
 pub enum AssemblyError {
     #[error("no part {0}")]
     MissingPart(PartId),
-    #[error("no group {0}")]
-    MissingGroup(GroupId),
-    /// Placing the group would make it contain itself.
-    #[error("placing {child} in {parent} would make {child} contain itself")]
-    Cycle { parent: GroupId, child: GroupId },
-    #[error("group {group} has no child {index}")]
-    MissingChild { group: GroupId, index: usize },
+    #[error("no frame {0:?} in this assembly")]
+    MissingFrame(FrameId),
+    /// Only groups can hold other frames, or be copied.
+    #[error("frame {0:?} is a part instance, not a group")]
+    NotAGroup(FrameId),
+    /// The root is the assembly's own coordinates; it isn't placed.
+    #[error("the root frame has no placement")]
+    RootPlacement,
     #[error(transparent)]
     Transform(#[from] TransformError),
 }

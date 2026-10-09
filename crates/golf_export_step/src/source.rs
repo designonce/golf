@@ -3,6 +3,7 @@
 use core::fmt::Debug;
 use core::hash::Hash;
 
+use golf_color::Color;
 use golf_manifold::Point;
 use golf_manifold::Space;
 
@@ -29,6 +30,16 @@ pub trait StepSource {
     /// Groups of faces forming shells: the outer shell first, then any voids,
     /// whose faces point into the void.
     fn shells(&self) -> impl Iterator<Item = Vec<Self::Face>> + '_;
+
+    /// The whole body's colour.
+    fn color(&self) -> Option<Color> {
+        None
+    }
+
+    /// A face's own colour, overriding the body's.
+    fn face_color(&self, _face: Self::Face) -> Option<Color> {
+        None
+    }
 }
 
 /// An edge along `curve` (in the direction of increasing parameter) from

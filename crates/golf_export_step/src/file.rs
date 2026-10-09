@@ -2,6 +2,8 @@
 
 use std::collections::HashMap;
 
+use golf_color::Color;
+
 use crate::error::StepError;
 use crate::geometry::StepCurve;
 use crate::geometry::StepSurface;
@@ -55,6 +57,10 @@ pub struct StepFile {
     product_context: Ref,
     definition_context: Ref,
     products: Vec<Ref>,
+    /// One presentation style per colour.
+    styles: HashMap<Color, Ref>,
+    /// Every styled item, gathered into one presentation at the end.
+    styled_items: Vec<Ref>,
 }
 
 impl StepFile {
@@ -76,6 +82,8 @@ impl StepFile {
             product_context,
             definition_context,
             products: Vec::new(),
+            styles: HashMap::new(),
+            styled_items: Vec::new(),
         })
     }
 
@@ -86,6 +94,7 @@ impl StepFile {
     /// outside and the rest voids; otherwise as a surface model.
     pub fn add_body<M: StepSource>(&mut self, name: &str, body: &M) -> Result<Product, StepError> {
         let shape = write_body(&mut self.w, name, body)?;
+        self.style_body(&shape, body.color())?;
         let origin = self.w.motion(&nalgebra::Isometry3::identity())?;
         let kind = match shape.closed {
             true => "ADVANCED_BREP_SHAPE_REPRESENTATION",
@@ -100,10 +109,10 @@ impl StepFile {
         Ok(self.product(name, representation, origin))
     }
 
-    /// Adds an assembly named `name` placing each child product (a part or
-    /// another assembly) by its motion from the assembly's origin. A product may
-    /// be placed many times, in one assembly or several.
-    pub fn add_assembly(
+    /// Adds an assembly product named `name` placing each child product (a
+    /// part or another assembly) by its motion from the assembly's origin. A
+    /// product may be placed many times, in one assembly or several.
+    pub fn add_group(
         &mut self,
         name: &str,
         children: &[(Product, nalgebra::Isometry3<f64>)],
@@ -150,6 +159,66 @@ impl StepFile {
         Ok(assembly)
     }
 
+    /// Styles a written body: its colour on the whole, and faces' own colours
+    /// over it.
+    fn style_body(&mut self, shape: &Shape, color: Option<Color>) -> Result<(), StepError> {
+        let body_item = match color {
+            Some(color) => {
+                let style = self.style(color)?;
+                let item = self
+                    .w
+                    .add(format!("STYLED_ITEM('color',({style}),{})", shape.styled));
+                self.styled_items.push(item);
+                Some(item)
+            }
+            None => None,
+        };
+        for &(color, face) in &shape.face_colors {
+            let style = self.style(color)?;
+            let item = match body_item {
+                Some(body_item) => self.w.add(format!(
+                    "OVER_RIDING_STYLED_ITEM('color',({style}),{face},{body_item})"
+                )),
+                None => self.w.add(format!("STYLED_ITEM('color',({style}),{face})")),
+            };
+            self.styled_items.push(item);
+        }
+        Ok(())
+    }
+
+    /// A `PRESENTATION_STYLE_ASSIGNMENT` filling both sides of a surface with
+    /// `color`, made once per colour.
+    fn style(&mut self, color: Color) -> Result<Ref, StepError> {
+        if let Some(&style) = self.styles.get(&color) {
+            return Ok(style);
+        }
+        let w = &mut self.w;
+        let [r, g, b] = color.unit_rgb();
+        let rgb = w.add(format!(
+            "COLOUR_RGB('',{},{},{})",
+            real(r)?,
+            real(g)?,
+            real(b)?
+        ));
+        let fill_colour = w.add(format!("FILL_AREA_STYLE_COLOUR('',{rgb})"));
+        let fill = w.add(format!("FILL_AREA_STYLE('',({fill_colour}))"));
+        let mut sides = vec![w.add(format!("SURFACE_STYLE_FILL_AREA({fill})"))];
+        if color.a.is_some() {
+            let transparency = w.add(format!(
+                "SURFACE_STYLE_TRANSPARENT({})",
+                real(1.0 - color.opacity())?
+            ));
+            sides.push(w.add(format!(
+                "SURFACE_STYLE_RENDERING_WITH_PROPERTIES(.NORMAL_SHADING.,{rgb},({transparency}))"
+            )));
+        }
+        let side = w.add(format!("SURFACE_SIDE_STYLE('',{})", refs(sides)));
+        let usage = w.add(format!("SURFACE_STYLE_USAGE(.BOTH.,{side})"));
+        let style = w.add(format!("PRESENTATION_STYLE_ASSIGNMENT(({usage}))"));
+        self.styles.insert(color, style);
+        Ok(style)
+    }
+
     /// A product named `name` whose shape is `representation`, with the
     /// identity placement `origin` among its items.
     fn product(&mut self, name: &str, representation: Ref, origin: Ref) -> Product {
@@ -178,6 +247,13 @@ impl StepFile {
 
     /// The file's text.
     pub fn finish(mut self) -> String {
+        if !self.styled_items.is_empty() {
+            self.w.add(format!(
+                "MECHANICAL_DESIGN_GEOMETRIC_PRESENTATION_REPRESENTATION('',{},{})",
+                refs(core::mem::take(&mut self.styled_items)),
+                self.context
+            ));
+        }
         if !self.products.is_empty() {
             self.w.add(format!(
                 "PRODUCT_RELATED_PRODUCT_CATEGORY('part',$,{})",
@@ -207,6 +283,10 @@ fn representation_context(w: &mut Writer, uncertainty: f64) -> Result<Ref, StepE
 struct Shape {
     item: Ref,
     closed: bool,
+    /// What the body's colour is styled on: the solid, or the first open shell.
+    styled: Ref,
+    /// Faces with their own colour, and their entities.
+    face_colors: Vec<(Color, Ref)>,
 }
 
 fn write_body<M: StepSource>(w: &mut Writer, name: &str, body: &M) -> Result<Shape, StepError> {
@@ -241,6 +321,7 @@ fn write_body<M: StepSource>(w: &mut Writer, name: &str, body: &M) -> Result<Sha
     }
     let mut closed = true;
     let mut written_shells = Vec::new();
+    let mut face_colors = Vec::new();
     for (index, shell) in shells.iter().enumerate() {
         let flip = index > 0;
         let mut uses: HashMap<M::Edge, usize> = HashMap::new();
@@ -270,11 +351,15 @@ fn write_body<M: StepSource>(w: &mut Writer, name: &str, body: &M) -> Result<Sha
                 bounds.push(w.add(format!("FACE_BOUND('',{edge_loop},{})", logical(!flip))));
             }
             let same_sense = face.same_sense != flip;
-            face_refs.push(w.add(format!(
+            let face_ref = w.add(format!(
                 "ADVANCED_FACE('',{},{surface},{})",
                 refs(bounds),
                 logical(same_sense)
-            )));
+            ));
+            if let Some(color) = body.face_color(*face_id) {
+                face_colors.push((color, face_ref));
+            }
+            face_refs.push(face_ref);
         }
         closed &= uses.values().all(|&n| n == 2);
         written_shells.push(face_refs);
@@ -288,9 +373,14 @@ fn write_body<M: StepSource>(w: &mut Writer, name: &str, body: &M) -> Result<Sha
             .collect();
         let item = w.add(format!(
             "SHELL_BASED_SURFACE_MODEL({name},{})",
-            refs(shells)
+            refs(shells.iter().copied())
         ));
-        return Ok(Shape { item, closed });
+        return Ok(Shape {
+            item,
+            closed,
+            styled: shells[0],
+            face_colors,
+        });
     }
     let shells: Vec<Ref> = written_shells
         .into_iter()
@@ -305,5 +395,10 @@ fn write_body<M: StepSource>(w: &mut Writer, name: &str, body: &M) -> Result<Sha
         true => w.add(format!("MANIFOLD_SOLID_BREP({name},{outer})")),
         false => w.add(format!("BREP_WITH_VOIDS({name},{outer},{})", refs(voids))),
     };
-    Ok(Shape { item, closed })
+    Ok(Shape {
+        item,
+        closed,
+        styled: item,
+        face_colors,
+    })
 }

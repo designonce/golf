@@ -78,6 +78,8 @@ pub struct Face<S: Space<3>> {
     /// The face's boundary. A face covering a whole closed surface, such as a
     /// sphere or torus, has none.
     pub loops: Vec<Loop<S>>,
+    /// The face's own colour, overriding its body's.
+    pub color: Option<golf_color::Color>,
 }
 
 /// A connected set of faces, closed for a solid.
