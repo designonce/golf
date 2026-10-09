@@ -273,18 +273,48 @@ impl Geometry<'_> {
                         [1.0, 1.0],
                     ));
                 }
-                "TOROIDAL_SURFACE" => {
+                "TOROIDAL_SURFACE" | "DEGENERATE_TOROIDAL_SURFACE" => {
                     let (major, minor) = (
                         record.real(2).at(id)? * length,
                         record.real(3).at(id)? * length,
                     );
-                    if major <= minor {
-                        return Err(unsupported(id, "a spindle or horn torus"));
+                    if major > minor {
+                        return Ok(exact(
+                            Torus::new(placement()?, major, minor).into(),
+                            [1.0, 1.0],
+                        ));
                     }
-                    return Ok(exact(
-                        Torus::new(placement()?, major, minor).into(),
-                        [1.0, 1.0],
-                    ));
+                    // A spindle or horn torus: the part of its tube outside
+                    // its axis (or, if the file selects it, inside), revolved.
+                    let outer = match record.name.as_str() {
+                        "DEGENERATE_TOROIDAL_SURFACE" => record.boolean(4).at(id)?,
+                        _ => true,
+                    };
+                    let p = placement()?;
+                    let (origin, x, z) = (
+                        p.origin.coords,
+                        p.vector(Vector3::x()).coords,
+                        p.vector(Vector3::z()).coords,
+                    );
+                    // Where the tube crosses the axis, as an angle round it.
+                    let crossing = (-major / minor).clamp(-1.0, 1.0).acos();
+                    let (from, to) = match outer {
+                        true => (-crossing, crossing),
+                        false => (crossing, TAU - crossing),
+                    };
+                    let tube = golf_nurbs::NurbsCurve::circular_arc(
+                        origin + x * major,
+                        x,
+                        z,
+                        minor,
+                        from,
+                        to,
+                    );
+                    let surface = revolve(id, &tube, origin, z)?;
+                    return Ok(FaceSurface {
+                        surface: NurbsSurface::new(surface).into(),
+                        uv_scale: None,
+                    });
                 }
                 "RECTANGULAR_TRIMMED_SURFACE" => {
                     return self.surface(record.reference(1).at(id)?, face_points);
@@ -464,58 +494,7 @@ impl Geometry<'_> {
             Some(d) => self.direction::<3>(d)?,
             None => Vector3::z(),
         };
-        // A fixed frame about the axis, x towards the profile.
-        let count = profile.control_point_count();
-        let radial = |p: Vector3<f64>| {
-            let d = p - origin;
-            d - z * d.dot(&z)
-        };
-        let x = (0..count)
-            .map(|i| radial(profile.control_point(i)))
-            .find(|r| r.norm() > 1e-9)
-            .and_then(|r| r.try_normalize(1e-300))
-            .ok_or_else(|| invalid(id, "its profile lies on its axis"))?;
-        let y = z.cross(&x);
-        let unit = golf_nurbs::NurbsCurve::<2>::circular_arc(
-            nalgebra::Vector2::zeros(),
-            nalgebra::Vector2::x(),
-            nalgebra::Vector2::y(),
-            1.0,
-            0.0,
-            TAU,
-        );
-        let arc_count = unit.control_point_count();
-        let mut points = Vec::with_capacity(count);
-        let mut weights = Vec::with_capacity(count);
-        for i in 0..count {
-            let p = profile.control_point(i);
-            let d = p - origin;
-            let height = d.dot(&z);
-            let (a, b) = (d.dot(&x), d.dot(&y));
-            let centre = origin + z * height;
-            // Rotating (a, b) is linear in (cos, sin), so the arc's control
-            // points rotate it exactly.
-            points.push(
-                (0..arc_count)
-                    .map(|j| {
-                        let c = unit.control_point(j);
-                        centre + x * (a * c.x - b * c.y) + y * (a * c.y + b * c.x)
-                    })
-                    .collect(),
-            );
-            weights.push(
-                (0..arc_count)
-                    .map(|j| profile.weight(i) * unit.weight(j))
-                    .collect(),
-            );
-        }
-        let surface = golf_nurbs::NurbsSurface::new(
-            (profile.degree(), profile.knots().knots().to_vec()),
-            (2, unit.knots().knots().to_vec()),
-            points,
-            Some(weights),
-        )
-        .map_err(|e| invalid(id, e.to_string()))?;
+        let surface = revolve(id, &profile, origin, z)?;
         Ok(FaceSurface {
             surface: NurbsSurface::new(surface).into(),
             uv_scale: None,
@@ -566,6 +545,67 @@ pub(crate) enum Curve2 {
     /// `origin + t·direction`.
     Line(nalgebra::Vector2<f64>, nalgebra::Vector2<f64>),
     Nurbs(golf_nurbs::NurbsCurve<2>),
+}
+
+/// `profile` turned a full turn about the axis through `origin` along unit
+/// `z`, as a rational NURBS surface: u along the profile, v round the axis.
+fn revolve(
+    id: Id,
+    profile: &golf_nurbs::NurbsCurve<3>,
+    origin: Vector3<f64>,
+    z: Vector3<f64>,
+) -> Read<golf_nurbs::NurbsSurface<3>> {
+    // A fixed frame about the axis, x towards the profile.
+    let count = profile.control_point_count();
+    let radial = |p: Vector3<f64>| {
+        let d = p - origin;
+        d - z * d.dot(&z)
+    };
+    let x = (0..count)
+        .map(|i| radial(profile.control_point(i)))
+        .find(|r| r.norm() > 1e-9)
+        .and_then(|r| r.try_normalize(1e-300))
+        .ok_or_else(|| invalid(id, "its profile lies on its axis"))?;
+    let y = z.cross(&x);
+    let unit = golf_nurbs::NurbsCurve::<2>::circular_arc(
+        nalgebra::Vector2::zeros(),
+        nalgebra::Vector2::x(),
+        nalgebra::Vector2::y(),
+        1.0,
+        0.0,
+        TAU,
+    );
+    let arc_count = unit.control_point_count();
+    let mut points = Vec::with_capacity(count);
+    let mut weights = Vec::with_capacity(count);
+    for i in 0..count {
+        let d = profile.control_point(i) - origin;
+        let height = d.dot(&z);
+        let (a, b) = (d.dot(&x), d.dot(&y));
+        let centre = origin + z * height;
+        // Rotating (a, b) is linear in (cos, sin), so the arc's control
+        // points rotate it exactly.
+        points.push(
+            (0..arc_count)
+                .map(|j| {
+                    let c = unit.control_point(j);
+                    centre + x * (a * c.x - b * c.y) + y * (a * c.y + b * c.x)
+                })
+                .collect(),
+        );
+        weights.push(
+            (0..arc_count)
+                .map(|j| profile.weight(i) * unit.weight(j))
+                .collect(),
+        );
+    }
+    golf_nurbs::NurbsSurface::new(
+        (profile.degree(), profile.knots().knots().to_vec()),
+        (2, unit.knots().knots().to_vec()),
+        points,
+        Some(weights),
+    )
+    .map_err(|e| invalid(id, e.to_string()))
 }
 
 /// Knots from distinct values and their multiplicities.
