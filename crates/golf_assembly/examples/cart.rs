@@ -4,12 +4,14 @@
 //! ```text
 //! cargo run -p golf_assembly --example cart -- cart.step
 //! cargo run -p golf_assembly --example cart -- cart_flat.step --flat
+//! cargo run -p golf_assembly --example cart -- --view
 //! ```
 //!
 //! The cart is a tray, a handle and two axle groups (an axle and two wheels),
 //! so the wheel is defined once and placed four times; the back axle is a copy
 //! of the front, coloured differently. With `--flat`, every
-//! placed part is written separately, moved into place, instead.
+//! placed part is written separately, moved into place, instead. With
+//! `--view`, the cart is shown in a window rather than written.
 
 use core::f64::consts::FRAC_PI_2;
 use std::error::Error;
@@ -21,6 +23,8 @@ use golf_export_step::StepOptions;
 use golf_geom::Placement;
 use golf_manifold::Point;
 use golf_manifold::World;
+use golf_mesh::Tolerance;
+use golf_mesh::mesh;
 use golf_model::EdgeTreatment;
 use golf_model::ExtrudeEnds;
 use golf_model::Profile;
@@ -28,6 +32,7 @@ use golf_model::extrude_hollow;
 use golf_model::extrude_with;
 use golf_model::pipe;
 use golf_model::primitives;
+use golf_view::Viewer;
 use nalgebra::Isometry3;
 use nalgebra::Translation3;
 use nalgebra::UnitQuaternion;
@@ -35,16 +40,31 @@ use nalgebra::Vector2;
 use nalgebra::Vector3;
 
 fn main() -> Result<(), Box<dyn Error>> {
-    let mut args = std::env::args().skip(1);
-    let path = args.next().unwrap_or_else(|| "cart.step".to_string());
-    let flat = args.any(|a| a == "--flat");
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    let flag = |name: &str| args.iter().any(|a| a == name);
+    let path = args
+        .iter()
+        .find(|a| !a.starts_with("--"))
+        .cloned()
+        .unwrap_or_else(|| "cart.step".to_string());
 
     let cart = cart()?;
+    if flag("--view") {
+        let mut viewer = Viewer::new("cart");
+        for (_, body) in cart.posed_bodies()? {
+            let mesh = mesh(&body, &Tolerance::new(0.05, 0.3))?;
+            viewer.add_mesh(&mesh, |&face| {
+                body.face_color(face).unwrap_or(Color::rgb(170, 175, 180))
+            });
+        }
+        viewer.run();
+        return Ok(());
+    }
     let mut file = StepFile::new(StepOptions {
         name: "cart".to_string(),
         ..StepOptions::default()
     })?;
-    match flat {
+    match flag("--flat") {
         false => {
             file.add_assembly(&cart)?;
         }
