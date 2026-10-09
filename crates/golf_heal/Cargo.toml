@@ -1,0 +1,26 @@
+[package]
+name = "golf_heal"
+description = "Making boundary-represented bodies from outside sources complete and consistent"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[dependencies]
+golf_brep = { workspace = true, default-features = false }
+golf_geom.workspace = true
+golf_manifold.workspace = true
+golf_nurbs.workspace = true
+nalgebra.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+golf_mesh.workspace = true
+golf_model.workspace = true
+
+[lints]
+workspace = true
