@@ -36,6 +36,16 @@ impl Default for StepOptions {
     }
 }
 
+/// A part or assembly written to a [`StepFile`], for placing in assemblies.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Product {
+    definition: Ref,
+    representation: Ref,
+    /// The identity placement among the representation's items, which
+    /// placements in assemblies map from.
+    origin: Ref,
+}
+
 /// A STEP file being built: add bodies with [`Self::add_body`], then
 /// [`Self::finish`] it.
 pub struct StepFile {
@@ -69,27 +79,81 @@ impl StepFile {
         })
     }
 
-    /// Adds `body` as a part named `name`.
+    /// Adds `body` as a part named `name`, returning the product for placing it
+    /// in assemblies.
     ///
     /// A body whose shells are all closed is written as a solid, its first shell
     /// outside and the rest voids; otherwise as a surface model.
-    pub fn add_body<M: StepSource>(&mut self, name: &str, body: &M) -> Result<(), StepError> {
-        let w = &mut self.w;
-        let shape = write_body(w, name, body)?;
-        let origin = w.placement(&golf_geom::Placement::<golf_manifold::World>::at(
-            golf_manifold::Point::new(nalgebra::Vector3::zeros()),
-        ))?;
+    pub fn add_body<M: StepSource>(&mut self, name: &str, body: &M) -> Result<Product, StepError> {
+        let shape = write_body(&mut self.w, name, body)?;
+        let origin = self.w.motion(&nalgebra::Isometry3::identity())?;
         let kind = match shape.closed {
             true => "ADVANCED_BREP_SHAPE_REPRESENTATION",
             false => "MANIFOLD_SURFACE_SHAPE_REPRESENTATION",
         };
-        let representation = w.add(format!(
+        let representation = self.w.add(format!(
             "{kind}({},({},{origin}),{})",
             string(name),
             shape.item,
             self.context
         ));
+        Ok(self.product(name, representation, origin))
+    }
 
+    /// Adds an assembly named `name` placing each child product (a part or
+    /// another assembly) by its motion from the assembly's origin. A product may
+    /// be placed many times, in one assembly or several.
+    pub fn add_assembly(
+        &mut self,
+        name: &str,
+        children: &[(Product, nalgebra::Isometry3<f64>)],
+    ) -> Result<Product, StepError> {
+        let w = &mut self.w;
+        let origin = w.motion(&nalgebra::Isometry3::identity())?;
+        let axes = children
+            .iter()
+            .map(|(_, motion)| w.motion(motion))
+            .collect::<Result<Vec<_>, _>>()?;
+        let mut items = vec![origin];
+        items.extend(&axes);
+        let representation = w.add(format!(
+            "SHAPE_REPRESENTATION({},{},{})",
+            string(name),
+            refs(items),
+            self.context
+        ));
+        let assembly = self.product(name, representation, origin);
+        // Each child placed: a usage of its product in this one, and its
+        // representation related to this one's by the transformation taking its
+        // origin to the placement.
+        for (i, ((child, _), axis)) in children.iter().zip(axes).enumerate() {
+            let w = &mut self.w;
+            let usage = w.add(format!(
+                "NEXT_ASSEMBLY_USAGE_OCCURRENCE({},'','',{},{},$)",
+                string(&(i + 1).to_string()),
+                assembly.definition,
+                child.definition
+            ));
+            let usage_shape = w.add(format!("PRODUCT_DEFINITION_SHAPE('','',{usage})"));
+            let transformation = w.add(format!(
+                "ITEM_DEFINED_TRANSFORMATION('','',{},{axis})",
+                child.origin
+            ));
+            let relationship = w.add(format!(
+                "(REPRESENTATION_RELATIONSHIP('','',{},{})REPRESENTATION_RELATIONSHIP_WITH_TRANSFORMATION({transformation})SHAPE_REPRESENTATION_RELATIONSHIP())",
+                child.representation, assembly.representation
+            ));
+            w.add(format!(
+                "CONTEXT_DEPENDENT_SHAPE_REPRESENTATION({relationship},{usage_shape})"
+            ));
+        }
+        Ok(assembly)
+    }
+
+    /// A product named `name` whose shape is `representation`, with the
+    /// identity placement `origin` among its items.
+    fn product(&mut self, name: &str, representation: Ref, origin: Ref) -> Product {
+        let w = &mut self.w;
         let name = string(name);
         let product = w.add(format!(
             "PRODUCT({name},{name},'',({}))",
@@ -105,7 +169,11 @@ impl StepFile {
             "SHAPE_DEFINITION_REPRESENTATION({definition_shape},{representation})"
         ));
         self.products.push(product);
-        Ok(())
+        Product {
+            definition,
+            representation,
+            origin,
+        }
     }
 
     /// The file's text.

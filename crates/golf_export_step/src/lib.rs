@@ -7,6 +7,9 @@
 //! [`StepSurface`], which `golf_geom`'s types do, and which other geometry can
 //! implement with the [`Writer`].
 //!
+//! Bodies can be placed in assemblies with [`StepFile::add_assembly`], which
+//! nest and share parts and sub-assemblies.
+//!
 //! Coordinates are written as millimetres and angles as radians. Every body's
 //! coordinates are written as they are, so bodies in different frames should be
 //! brought into one first.
@@ -18,6 +21,7 @@ mod source;
 mod writer;
 
 pub use error::StepError;
+pub use file::Product;
 pub use file::StepFile;
 pub use file::StepOptions;
 pub use geometry::StepCurve;

@@ -56,6 +56,17 @@ impl Writer {
         )))
     }
 
+    /// An `AXIS2_PLACEMENT_3D` for the frame `motion` moves the identity frame
+    /// to: at its translation, axis its rotated z, reference its rotated x.
+    pub fn motion(&mut self, motion: &nalgebra::Isometry3<f64>) -> Result<Ref, StepError> {
+        let location = self.point(motion.translation.vector)?;
+        let axis = self.direction(motion.rotation * Vector3::z())?;
+        let reference = self.direction(motion.rotation * Vector3::x())?;
+        Ok(self.add(format!(
+            "AXIS2_PLACEMENT_3D('',{location},{axis},{reference})"
+        )))
+    }
+
     /// The whole file.
     pub(crate) fn finish(self, name: &str, time_stamp: &str) -> String {
         let mut out = String::new();
