@@ -29,6 +29,7 @@ golf_export_step = { path = "crates/golf_export_step" }
 golf_frame = { path = "crates/golf_frame" }
 golf_geom = { path = "crates/golf_geom" }
 golf_heal = { path = "crates/golf_heal" }
+golf_import_step = { path = "crates/golf_import_step" }
 golf_internal = { path = "crates/golf_internal", default-features = false }
 golf_manifold = { path = "crates/golf_manifold" }
 golf_mesh = { path = "crates/golf_mesh" }

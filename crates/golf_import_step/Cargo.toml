@@ -1,0 +1,32 @@
+[package]
+name = "golf_import_step"
+description = "Reading STEP files into golf bodies and assemblies"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[dependencies]
+golf_assembly.workspace = true
+golf_brep = { workspace = true, default-features = false }
+golf_color.workspace = true
+golf_frame.workspace = true
+golf_geom.workspace = true
+golf_heal.workspace = true
+golf_manifold.workspace = true
+golf_nurbs.workspace = true
+golf_step.workspace = true
+nalgebra.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+golf_export_step.workspace = true
+golf_mesh.workspace = true
+golf_model.workspace = true
+
+[lints]
+workspace = true
