@@ -36,6 +36,9 @@ const MAX_ROUNDS: usize = 32;
 const MAX_INTERIOR_VERTICES: usize = 200_000;
 /// A cap on the seeded grid's points per face.
 const MAX_SEEDS: usize = 100_000;
+/// The most one parameter axis is stretched against the other, so triangles
+/// can be this many times longer along the surface's straighter direction.
+const MAX_STRETCH: f64 = 64.0;
 
 /// Triangulates `face` inside `loops` and appends its triangles (and any new
 /// interior vertices) to `mesh`.
@@ -53,8 +56,27 @@ pub(crate) fn triangulate<M: MeshSource>(
     };
 
     // Delaunay triangles are only well shaped if parameter distances are
-    // roughly surface distances, so scale each axis by its average speed.
-    let scale = axis_scale::<M>(surface, loops);
+    // roughly surface distances, so scale each axis by its average speed. Then
+    // stretch the axis needing the shorter steps (by the curvature), so
+    // triangles come out long where the surface is straight, as along a
+    // cylinder: well shaped in steps rather than in millimetres.
+    let speed = axis_scale::<M>(surface, loops);
+    let scale = match Bounds::of(loops) {
+        Some(bounds) => {
+            let step = |k: usize| {
+                bounds.range[k]
+                    / steps_along::<M>(surface, &bounds, k, &seed_tolerance(tolerance)) as f64
+                    * speed[k]
+            };
+            let (su, sv) = (step(0), step(1));
+            let finest = su.min(sv);
+            Vector2::new(
+                speed.x * (finest / su).max(1.0 / MAX_STRETCH),
+                speed.y * (finest / sv).max(1.0 / MAX_STRETCH),
+            )
+        }
+        None => speed,
+    };
     let to_cdt = |uv: Vector2<f64>| cdt_point(uv.component_mul(&scale));
     let to_uv = |p: Point2<f64>| Vector2::new(p.x / scale.x, p.y / scale.y);
 
@@ -98,6 +120,9 @@ pub(crate) fn triangulate<M: MeshSource>(
     };
 
     let domain = surface.domain();
+    // Triangles found to meet the tolerance, by their corners, which stay
+    // the same while nothing is inserted inside them; so each is checked once.
+    let mut settled: HashSet<[FixedVertexHandle; 3]> = HashSet::new();
     for _ in 0..MAX_ROUNDS {
         let inside = inside_faces(&cdt);
         let mut splits = Vec::new();
@@ -106,6 +131,11 @@ pub(crate) fn triangulate<M: MeshSource>(
                 continue;
             }
             let handles = triangle.vertices().map(|v| v.fix());
+            let mut key = handles;
+            key.sort();
+            if settled.contains(&key) {
+                continue;
+            }
             let Some(uvs) =
                 lift_singular(triangle.vertices().map(|v| to_uv(v.position())), &domain)
             else {
@@ -113,8 +143,11 @@ pub(crate) fn triangulate<M: MeshSource>(
                 continue;
             };
             let corners = handles.map(|h| position(&cdt, h));
-            if !meets_tolerance::<M>(surface, &triangle, uvs, corners, tolerance) {
-                splits.push(to_cdt(split_point(&triangle, handles, uvs, corners)));
+            match meets_tolerance::<M>(surface, &triangle, uvs, corners, tolerance) {
+                true => {
+                    settled.insert(key);
+                }
+                false => splits.push(to_cdt(split_point(&triangle, handles, uvs, corners))),
             }
         }
         if splits.is_empty() || cdt.num_vertices() > boundary_vertex.len() + MAX_INTERIOR_VERTICES {
@@ -239,6 +272,9 @@ fn lift_singular(uvs: [Vector2<f64>; 3], domain: &Domain<2>) -> Option<[Vector2<
 /// its plane, at the middle of each interior edge within the chord of that
 /// edge, and its normal within the angle of the surface's at each corner.
 /// Boundary edges are the edge sampler's business.
+///
+/// A triangle no longer than the chord is close enough whatever its normal,
+/// which near a pole or a sharp boundary corner may never settle.
 fn meets_tolerance<M: MeshSource>(
     surface: &M::Surface,
     triangle: &spade::handles::FaceHandle<'_, InnerTag, Point2<f64>, (), spade::CdtEdge<()>, ()>,
@@ -248,8 +284,12 @@ fn meets_tolerance<M: MeshSource>(
 ) -> bool {
     let raise = |uv: Vector2<f64>| surface.apply(Point::new(uv)).coords;
     let normal = (corners[1] - corners[0]).cross(&(corners[2] - corners[0]));
-    if normal.norm() == 0.0 {
-        // Collapsed onto a pole; it's dropped anyway.
+    let longest = (0..3)
+        .map(|i| (corners[(i + 1) % 3] - corners[i]).norm())
+        .fold(0.0, f64::max);
+    if longest <= tolerance.chord || normal.norm() <= 1e-12 * longest * longest {
+        // Too small to miss, or collapsed onto a line (a pole, or a straight
+        // seam meeting an apex), where its normal means nothing.
         return true;
     }
     let centroid = (uvs[0] + uvs[1] + uvs[2]) / 3.0;
@@ -353,61 +393,13 @@ fn seed_interior<M: MeshSource>(
     scale: Vector2<f64>,
     tolerance: &Tolerance,
 ) -> Result<(), spade::InsertionError> {
-    let uvs: Vec<Vector2<f64>> = loops.iter().flatten().map(|p| p.uv).collect();
-    let lo = uvs
-        .iter()
-        .fold(Vector2::repeat(f64::INFINITY), |a, b| a.inf(b));
-    let hi = uvs
-        .iter()
-        .fold(Vector2::repeat(f64::NEG_INFINITY), |a, b| a.sup(b));
-    let range = hi - lo;
-    if !(range.x > 0.0 && range.y > 0.0) {
+    let Some(bounds) = Bounds::of(loops) else {
         return Ok(());
-    }
-
-    // How many steps the curve sampler takes along the isoparametric curve in
-    // axis `k` at `fixed` in the other axis, at its finest. At half the chord:
-    // a cell's diagonal is longer than either side, and its triangles sag
-    // about twice as much.
-    let tolerance = &Tolerance {
-        chord: tolerance.chord / 2.0,
-        ..*tolerance
     };
-    let steps_along = |k: usize, fixed: f64| -> usize {
-        let other = 1 - k;
-        let uv = |t: f64| {
-            let mut uv = Vector2::zeros();
-            uv[k] = t;
-            uv[other] = fixed;
-            uv
-        };
-        let point = |t: f64| surface.apply(Point::new(uv(t))).coords;
-        let tangent =
-            |t: f64| -> Vector3<f64> { surface.jacobian(Point::new(uv(t))).column(k).into() };
-        let closed = (point(lo[k]) - point(hi[k])).norm() <= tolerance.chord;
-        let ts = crate::sample::sample(
-            point,
-            tangent,
-            (lo[k], hi[k]),
-            if closed { 3 } else { 1 },
-            tolerance,
-        );
-        // The sampler halves segments, so its steps can be up to twice as fine
-        // as needed. Sag grows with the square of the step, so each segment's
-        // own sag says how long it could have been.
-        let step = ts
-            .windows(2)
-            .map(|w| {
-                let (a, b) = (w[0], w[1]);
-                let sag = distance_to_segment(point((a + b) / 2.0), point(a), point(b));
-                match sag > 0.0 {
-                    true => (b - a) * (tolerance.chord / sag).sqrt(),
-                    false => range[k],
-                }
-            })
-            .fold(range[k], f64::min);
-        (range[k] / step).ceil() as usize
-    };
+    let (lo, range) = (bounds.lo, bounds.range);
+    let uvs: Vec<Vector2<f64>> = loops.iter().flatten().map(|p| p.uv).collect();
+    let tolerance = &seed_tolerance(tolerance);
+    let steps_along = |k: usize, fixed: f64| steps_at::<M>(surface, &bounds, k, fixed, tolerance);
 
     // Rows of constant v, as many as the curves along v need; then each row
     // with as many points as its own curve along u needs, so rows that are
@@ -470,6 +462,101 @@ fn seed_interior<M: MeshSource>(
         }
     }
     Ok(())
+}
+
+/// The parameter box around a face's loops, if it has area.
+struct Bounds {
+    lo: Vector2<f64>,
+    range: Vector2<f64>,
+}
+
+impl Bounds {
+    fn of(loops: &[Vec<BoundaryPoint>]) -> Option<Self> {
+        let uvs = loops.iter().flatten().map(|p| p.uv);
+        let lo = uvs
+            .clone()
+            .fold(Vector2::repeat(f64::INFINITY), |a, b| a.inf(&b));
+        let hi = uvs.fold(Vector2::repeat(f64::NEG_INFINITY), |a, b| a.sup(&b));
+        let range = hi - lo;
+        (range.x > 0.0 && range.y > 0.0).then_some(Self { lo, range })
+    }
+}
+
+/// The tolerance seeds are spaced for: half the chord, as a cell's diagonal is
+/// longer than either side, and its triangles sag about twice as much.
+fn seed_tolerance(tolerance: &Tolerance) -> Tolerance {
+    Tolerance {
+        chord: tolerance.chord / 2.0,
+        ..*tolerance
+    }
+}
+
+/// The most steps [`steps_at`] takes along axis `k`, over a few lines across
+/// the bounds.
+fn steps_along<M: MeshSource>(
+    surface: &M::Surface,
+    bounds: &Bounds,
+    k: usize,
+    tolerance: &Tolerance,
+) -> usize {
+    [0.1, 0.3, 0.5, 0.7, 0.9]
+        .map(|f| {
+            steps_at::<M>(
+                surface,
+                bounds,
+                k,
+                bounds.lo[1 - k] + bounds.range[1 - k] * f,
+                tolerance,
+            )
+        })
+        .into_iter()
+        .max()
+        .unwrap_or(1)
+}
+
+/// How many steps the curve sampler takes along the isoparametric curve in
+/// axis `k` at `fixed` in the other axis, across the bounds, at its finest.
+fn steps_at<M: MeshSource>(
+    surface: &M::Surface,
+    bounds: &Bounds,
+    k: usize,
+    fixed: f64,
+    tolerance: &Tolerance,
+) -> usize {
+    let (lo, range) = (bounds.lo, bounds.range);
+    let other = 1 - k;
+    let uv = |t: f64| {
+        let mut uv = Vector2::zeros();
+        uv[k] = t;
+        uv[other] = fixed;
+        uv
+    };
+    let point = |t: f64| surface.apply(Point::new(uv(t))).coords;
+    let tangent = |t: f64| -> Vector3<f64> { surface.jacobian(Point::new(uv(t))).column(k).into() };
+    let hi = lo[k] + range[k];
+    let closed = (point(lo[k]) - point(hi)).norm() <= tolerance.chord;
+    let ts = crate::sample::sample(
+        point,
+        tangent,
+        (lo[k], hi),
+        if closed { 3 } else { 1 },
+        tolerance,
+    );
+    // The sampler halves segments, so its steps can be up to twice as fine as
+    // needed. Sag grows with the square of the step, so each segment's own sag
+    // says how long it could have been.
+    let step = ts
+        .windows(2)
+        .map(|w| {
+            let (a, b) = (w[0], w[1]);
+            let sag = distance_to_segment(point((a + b) / 2.0), point(a), point(b));
+            match sag > 0.0 {
+                true => (b - a) * (tolerance.chord / sag).sqrt(),
+                false => range[k],
+            }
+        })
+        .fold(range[k], f64::min);
+    (range[k] / step).ceil().max(1.0) as usize
 }
 
 /// Whether `p` is inside the polygons by the even-odd rule. Only for points
